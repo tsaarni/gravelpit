@@ -1,0 +1,8 @@
+- Write concise, concrete comments in places that are non-obvious and can prove to save time later.
+- Use simplified technical english language in code comments and documentation. 
+- Each source code file must have brief comment on top explaining what the file does, preferably single sentence.
+- Avoid symbols like →, use ->.
+- Avoid comment lines like // --- something ---
+- Avoid //nolint, instead fix the code.
+- Non-trivial logic needs a test case.
+- Performance on the syscall evaluation path is critically important, everything reasonable should be done for maximum performance.

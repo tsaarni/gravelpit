@@ -1,0 +1,49 @@
+# How open this sandbox is.
+#
+# Four rules, each matching everything of its kind. They name no path, so they score zero
+# and any rule naming a path overrides them. See README.md.
+#
+# read, exec and connect are open. write, delete and metadata are not opened here, so they
+# start closed: see writes.yaml for the paths where they are allowed.
+
+- name: reads-allowed
+  description: "Reads are most of the traffic and the least dangerous"
+  action: read
+  verdict: allow
+  match: true
+
+# Cut back by secrets.yaml. Reads are opened and then narrowed because the files that hold
+# secrets cannot be listed: you do not know what every tool stores or where, and something
+# installed next month will put a token somewhere nobody listed.
+
+- name: exec-allowed
+  description: "The agent runs whatever code it likes anyway"
+  action: exec
+  verdict: allow
+  match: true
+
+# Cut back by nothing. A list of allowed programs would have to include sh, python3 and
+# node, each of which can do anything. Recorded, not restricted.
+
+- name: network-allowed
+  description: "Egress is recorded, not restricted"
+  action: connect
+  verdict: allow
+  match: family == "AF_INET" || family == "AF_INET6"
+
+# Cut back by nothing. Rules can match address and port but not host name, because the
+# agent resolves names itself, so an address rule breaks ordinary work without stopping
+# what it aims at. What protects a secret is that it cannot be read.
+
+- name: sockets-allowed
+  description: "Unix sockets, except the ones secrets.yaml and gravelpit.yaml deny"
+  action: connect
+  verdict: allow
+  match: family == "AF_UNIX"
+
+# Cut back by secrets.yaml and gravelpit.yaml. Open because the sockets a machine needs are
+# many and differ per machine — docker, the ssh agent, the journal, nscd, pipewire, editor
+# helpers — while the ones worth blocking are few and known.
+#
+# The cost is that this fails open: a tool keeping credentials behind a socket nobody
+# listed is reachable.

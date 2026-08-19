@@ -1,0 +1,124 @@
+# What the agent may change.
+#
+# write, delete and metadata have no wide allow in baseline.yaml, so they start closed and
+# this file lists where they are allowed. Listing works here, unlike for reads: the places a
+# dev machine writes to are few and change rarely.
+
+- name: workspace-and-scratch
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/work/**") ||
+    pathMatch(path, "$WORKDIR/**") ||
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "/dev/shm/**")
+
+# ~/work covers moving between repos in one session. $WORKDIR is where gravelpit was started,
+# for when that is somewhere else.
+
+- name: build-caches
+  description: "Losing these is annoying, not damaging"
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/**") ||
+    pathMatch(path, "$HOME/go/pkg/**") ||
+    pathMatch(path, "$HOME/sdk/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**") ||
+    pathMatch(path, "$HOME/.npm/**") ||
+    pathMatch(path, "$HOME/.cargo/registry/**") ||
+    pathMatch(path, "$HOME/.gradle/caches/**")
+
+# One line for ~/.cache covers go-build, bazelisk, pip and npm. Under Landlock this had to be
+# split up, because allowing writes anywhere under ~/.cache made the bazelisk download
+# directory untrusted for running binaries. Gravelpit keeps write and exec apart.
+
+- name: tool-state
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/**") ||
+    pathMatch(path, "$HOME/.kube/**") ||
+    pathMatch(path, "$HOME/.kiro/**") ||
+    pathMatch(path, "$XDG_DATA_HOME/kiro-cli/**") ||
+    pathMatch(path, "$HOME/.agents/**") ||
+    pathMatch(path, "$XDG_STATE_HOME/runagent/**")
+
+# ~/.config is wide, and the narrower denies below and in gravelpit.yaml win over it.
+
+- name: known-hosts
+  description: "ssh adds a line here the first time it sees a host"
+  action: write
+  verdict: allow
+  match: pathMatch(path, "$HOME/.ssh/known_hosts")
+
+# Write but not delete: adding a host key is normal, removing the file is not.
+
+# --- Blocked even where the surrounding directory is writable -----------------
+
+- name: protect-autorun-files
+  description: "Files that run by themselves later, outside this session"
+  action: [write, delete]
+  verdict: deny
+  match: >
+    pathMatch(path, "$HOME/.bashrc") ||
+    pathMatch(path, "$HOME/.bash_profile") ||
+    pathMatch(path, "$HOME/.profile") ||
+    pathMatch(path, "$HOME/.zshrc") ||
+    pathMatch(path, "$HOME/.config/fish/config.fish") ||
+    pathMatch(path, "$HOME/.config/fish/conf.d/**") ||
+    pathMatch(path, "$HOME/.config/systemd/user/**") ||
+    pathMatch(path, "$HOME/.config/environment.d/**") ||
+    pathMatch(path, "$HOME/.config/autostart/**") ||
+    pathMatch(path, "$HOME/.ssh/authorized_keys")
+  message: >
+    Writing '${path}' is blocked by sandbox policy. This file runs on its own later,
+    outside this session, so a change here would outlive the job you are doing.
+    Set environment variables for the command you are running instead.
+
+# write and delete, not write alone: delete covers rename and truncate, so
+# `mv myhook .bashrc` would replace the file just as writing it would.
+#
+# The shell start-up files are already unwritable, because no allow rule covers $HOME
+# itself. They are listed so the agent gets this message instead of a bare refusal.
+
+# --- chmod and chown ---------------------------------------------------------
+#
+# Blocked everywhere, allowed where writing is allowed. They are not a way around anything:
+# changing a file's mode does not make it readable, because opening it is still checked. The
+# deny exists to say so, because chmod is the first thing anyone tries after a permission
+# error.
+
+- name: chmod-wont-help
+  action: metadata
+  verdict: deny
+  match: true
+  message: >
+    Changing the permissions or owner of '${path}' is blocked, and it would not have
+    helped anyway.
+    What you can reach is decided by path, not by file permissions. chmod and chown
+    cannot change that, and neither can running as somebody else: the sandbox is
+    attached to the process and every child inherits it.
+    If something was refused, it stays refused. Say what you needed and move on.
+
+- name: chmod-in-writable-paths
+  description: "Marking a build script executable is ordinary work"
+  action: metadata
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/work/**") ||
+    pathMatch(path, "$WORKDIR/**") ||
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "/dev/shm/**") ||
+    pathMatch(path, "$HOME/.cache/**") ||
+    pathMatch(path, "$HOME/go/pkg/**") ||
+    pathMatch(path, "$HOME/sdk/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**") ||
+    pathMatch(path, "$HOME/.npm/**") ||
+    pathMatch(path, "$HOME/.cargo/registry/**") ||
+    pathMatch(path, "$HOME/.gradle/caches/**")
+
+# The same paths as the two allow rules above. `chmod-wont-help` names no path, so it scores
+# zero and anything naming a path beats it. That is the shape for a catch-all with a message.

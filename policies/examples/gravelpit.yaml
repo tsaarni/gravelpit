@@ -1,0 +1,43 @@
+# Gravelpit's own settings, log and socket, all in one place.
+#
+# The agent runs as you, so the operating system allows all of this, and the policy loader
+# watches the directory. An agent that is stuck sees giving itself access as a sensible fix,
+# not as an attack.
+#
+# Gravelpit loads the same two rules itself before reading any of your files, so deleting this
+# file does not open the hole. It is here so you can see the rules and change the wording.
+
+- name: protect-gravelpit-files
+  action: [write, delete]
+  verdict: deny
+  match: >
+    pathMatch(path, "$HOME/.config/gravelpit/**") ||
+    pathMatch(path, "$XDG_DATA_HOME/gravelpit/**")
+  message: >
+    Writing '${path}' is blocked. These are gravelpit's own rules and its record of what
+    happened, and they cannot be changed from inside the sandbox.
+    If a rule is genuinely wrong, say so and stop. The user will change it.
+
+# ~/.config is writable in writes.yaml. This rule names more of the path, so it wins.
+#
+# Reading the rules is allowed on purpose — nothing here denies read. An agent that can see
+# the rules can say what it is not allowed to do, instead of guessing.
+
+- name: protect-gravelpit-socket
+  action: connect
+  verdict: deny
+  match: >
+    family == "AF_UNIX" && (
+      pathMatch(socket, "$XDG_RUNTIME_DIR/gravelpit/**") ||
+      pathMatch(socket, "/tmp/gravelpit-*/**")
+    )
+  message: >
+    This is gravelpit's control socket. It is blocked, and reaching it would let you stop the
+    sandbox you are running in. If a rule is genuinely wrong, say so and stop. The user
+    will change it.
+
+# Unix sockets are allowed in baseline.yaml, so this needs saying. The daemon accepts any
+# peer whose uid matches its own, and that is this agent's uid, so a connection here could
+# call supervisor_stop or kill_sandbox.
+#
+# The /tmp path is the last fallback in the socket_path chain when XDG_RUNTIME_DIR is unset.
