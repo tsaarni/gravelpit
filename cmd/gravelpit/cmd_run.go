@@ -203,6 +203,17 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 		defer statsSrv.Close()
 	}
 
+	// Adopt orphaned descendants instead of letting init take them.
+	//
+	// A process that daemonizes in the sandbox (setsid, then parent exits) would
+	// be reparented to systemd --user and leave the supervisor's process tree.
+	// process_vm_readv then fails with EPERM, because yama ptrace_scope=1 allows
+	// it only from an ancestor. Path arguments would decode as empty and no rule
+	// would decide anything.
+	if err := sandbox.SetChildSubreaper(); err != nil {
+		slog.Warn("not a child subreaper: daemonized processes may be unreadable", "error", err)
+	}
+
 	// Socketpair for passing the seccomp notify fd from the child to us.
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {

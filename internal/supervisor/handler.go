@@ -257,6 +257,15 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 		h.ProcessTable.RecordExec(int(req.Pid), ev.Path)
 	}
 
+	// mkdir on an existing directory changes nothing: the kernel answers EEXIST.
+	// Let it through so mkdir -p works when parent directories are outside the
+	// allowed write paths.
+	if decision.Verdict == policy.VerdictDeny && isMkdir(req.Data.Nr) && dirExists(ev.Path) {
+		resp := &seccomp.SeccompNotifResp{ID: req.ID, Flags: seccomp.SECCOMP_USER_NOTIF_FLAG_CONTINUE}
+		seccomp.NotifSend(notifFd, resp)
+		return
+	}
+
 	// Deliver denial message before responding (the process is still blocked).
 	//
 	// notify:false suppresses the rule message and the default fallback alike.
@@ -636,4 +645,15 @@ func readExe(pid uint32) string {
 // readlinkExe resolves /proc/<pid>/exe.
 func readlinkExe(pid uint32) (string, error) {
 	return os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+}
+
+// isMkdir reports whether nr is mkdir or mkdirat.
+func isMkdir(nr int32) bool {
+	return nr == int32(unix.SYS_MKDIR) || nr == int32(unix.SYS_MKDIRAT)
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.IsDir()
 }

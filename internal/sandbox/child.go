@@ -51,6 +51,17 @@ const (
 // prSetNoNewPrivs is the prctl option to disable privilege escalation.
 const prSetNoNewPrivs = 38
 
+// prSetChildSubreaper makes this process reap orphaned descendants instead of init.
+const prSetChildSubreaper = 36
+
+// SetChildSubreaper makes this process adopt its orphaned descendants.
+//
+// Sandboxed processes have to stay in the supervisor's process tree: with yama
+// ptrace_scope=1, process_vm_readv only works from an ancestor of the target.
+func SetChildSubreaper() error {
+	return prctl(prSetChildSubreaper, 1, 0, 0, 0)
+}
+
 // IsSandboxChild reports whether this process is the re-executed sandbox child.
 // The parent sets envSandboxChild before re-exec.
 func IsSandboxChild() bool {

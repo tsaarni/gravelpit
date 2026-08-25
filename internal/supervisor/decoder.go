@@ -83,35 +83,57 @@ func (d *Decoder) CheckValid() error {
 	return seccomp.NotifIDValid(d.notifFd, d.id)
 }
 
-// ReadString reads a NUL-terminated string from the target process's memory,
-// bracketed by ID_VALID to detect stale notifications.
-func (d *Decoder) ReadString(addr uintptr) string {
-	if addr == 0 {
-		return ""
-	}
-	if err := d.CheckValid(); err != nil {
-		return ""
-	}
-	buf := make([]byte, unix.PathMax)
+// readRemote copies up to len(buf) bytes from the target's memory at addr.
+// Returns the number of bytes read; zero means the read failed.
+//
+// A short read is normal: the request is PathMax and usually runs past the end
+// of the mapping holding the string, so callers must use the returned length.
+//
+// Failure is usually EPERM, not a bad address: process_vm_readv needs
+// ptrace-attach rights, which yama ptrace_scope=1 limits to ancestors of the
+// target. See sandbox.SetChildSubreaper.
+func readRemote(pid uint32, addr uintptr, buf []byte) int {
 	localIov := unix.Iovec{Base: &buf[0], Len: uint64(len(buf))}
 	remoteIov := unix.RemoteIovec{Base: addr, Len: len(buf)}
-	n, err := unix.ProcessVMReadv(int(d.pid),
+	n, err := unix.ProcessVMReadv(int(pid),
 		[]unix.Iovec{localIov},
 		[]unix.RemoteIovec{remoteIov},
 		0,
 	)
-	if err != nil || n == 0 {
-		return ""
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+// ReadString reads a NUL-terminated string from the target process's memory,
+// bracketed by ID_VALID to detect stale notifications.
+//
+// ok is false when the read failed. A failed read must not be mistaken for an
+// empty path argument: only the latter is a syscall the kernel rejects by itself.
+func (d *Decoder) ReadString(addr uintptr) (string, bool) {
+	if addr == 0 {
+		// No pointer to read. The kernel rejects the syscall itself.
+		return "", true
 	}
 	if err := d.CheckValid(); err != nil {
-		return ""
+		return "", false
+	}
+	buf := make([]byte, unix.PathMax)
+	n := readRemote(d.pid, addr, buf)
+	if n == 0 {
+		return "", false
+	}
+	if err := d.CheckValid(); err != nil {
+		return "", false
 	}
 	for i := 0; i < n; i++ {
 		if buf[i] == 0 {
-			return string(buf[:i])
+			return string(buf[:i]), true
 		}
 	}
-	return ""
+	// No terminator in what was read: not a usable path.
+	return "", false
 }
 
 // ReadBytes reads exactly size bytes from the target process's memory at addr,
@@ -124,14 +146,7 @@ func (d *Decoder) ReadBytes(addr uintptr, size int) []byte {
 		return nil
 	}
 	buf := make([]byte, size)
-	localIov := unix.Iovec{Base: &buf[0], Len: uint64(size)}
-	remoteIov := unix.RemoteIovec{Base: addr, Len: size}
-	n, err := unix.ProcessVMReadv(int(d.pid),
-		[]unix.Iovec{localIov},
-		[]unix.RemoteIovec{remoteIov},
-		0,
-	)
-	if err != nil || n != size {
+	if readRemote(d.pid, addr, buf) != size {
 		return nil
 	}
 	if err := d.CheckValid(); err != nil {
@@ -153,19 +168,19 @@ func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
 
 	switch nr {
 	case int(unix.SYS_OPEN):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: openAction(flagsArg(req.Data.Args[1]))}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_OPENAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: openAction(flagsArg(req.Data.Args[2]))}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_OPENAT2):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		// Args[2] points to struct open_how { __u64 flags; __u64 mode; __u64 resolve; }
 		// Read the first 8 bytes to get flags. Unlike the register arguments
 		// these are already 64-bit fields, so no truncation applies.
@@ -174,87 +189,87 @@ func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
 			flags = int(binary.LittleEndian.Uint64(b))
 		}
 		ev := DecodedEvent{Action: openAction(flags)}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_UNLINK), int(unix.SYS_RMDIR):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionDelete}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_UNLINKAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: policy.ActionDelete}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_MKDIR):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionWrite}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_MKDIRAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: policy.ActionWrite}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_RENAME):
-		src := d.ReadString(uintptr(req.Data.Args[0]))
-		dst := d.ReadString(uintptr(req.Data.Args[1]))
+		src, srcOK := d.ReadString(uintptr(req.Data.Args[0]))
+		dst, dstOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: policy.ActionDelete}
-		ev.Path = d.resolveCwd(&ev, src)
-		ev.SecondPath = d.resolveCwd(&ev, dst)
+		ev.Path = d.resolveCwd(&ev, src, srcOK)
+		ev.SecondPath = d.resolveCwd(&ev, dst, dstOK)
 		return ev
 
 	case int(unix.SYS_RENAMEAT), int(unix.SYS_RENAMEAT2):
-		src := d.ReadString(uintptr(req.Data.Args[1]))
-		dst := d.ReadString(uintptr(req.Data.Args[3]))
+		src, srcOK := d.ReadString(uintptr(req.Data.Args[1]))
+		dst, dstOK := d.ReadString(uintptr(req.Data.Args[3]))
 		ev := DecodedEvent{Action: policy.ActionDelete}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), src)
-		ev.SecondPath = d.resolveAt(&ev, dirfdArg(req.Data.Args[2]), dst)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), src, srcOK)
+		ev.SecondPath = d.resolveAt(&ev, dirfdArg(req.Data.Args[2]), dst, dstOK)
 		return ev
 
 	case int(unix.SYS_TRUNCATE):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionDelete}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_CHMOD):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionMetadata}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_FCHMODAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: policy.ActionMetadata}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_CHOWN):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionMetadata}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_FCHOWNAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		ev := DecodedEvent{Action: policy.ActionMetadata}
-		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path)
+		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
 		return ev
 
 	case int(unix.SYS_EXECVE):
-		path := d.ReadString(uintptr(req.Data.Args[0]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[0]))
 		ev := DecodedEvent{Action: policy.ActionExec}
-		ev.Path = d.resolveCwd(&ev, path)
+		ev.Path = d.resolveCwd(&ev, path, pathOK)
 		return ev
 
 	case int(unix.SYS_EXECVEAT):
-		path := d.ReadString(uintptr(req.Data.Args[1]))
+		path, pathOK := d.ReadString(uintptr(req.Data.Args[1]))
 		dirfd := dirfdArg(req.Data.Args[0])
 		ev := DecodedEvent{Action: policy.ActionExec}
 		const atEmptyPath = 0x1000
@@ -269,7 +284,7 @@ func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
 			ev.Path = target
 			return ev
 		}
-		ev.Path = d.resolveAt(&ev, dirfd, path)
+		ev.Path = d.resolveAt(&ev, dirfd, path, pathOK)
 		return ev
 
 	case int(unix.SYS_CONNECT):
@@ -405,11 +420,18 @@ func flagsArg(v uint64) int {
 
 // resolveAt makes a path argument absolute, recording failure on ev.
 //
+// ok reports whether the path argument was read. A failed read is not an empty
+// path: it must be unresolved, so the denial is audited and gives a reason.
+//
 // The resolution reads /proc for the target, so it is bracketed by
 // NOTIF_ID_VALID. Without the check a notification whose target already exited
 // could be answered using /proc data belonging to an unrelated process that
 // reused the pid.
-func (d *Decoder) resolveAt(ev *DecodedEvent, dirfd int, path string) string {
+func (d *Decoder) resolveAt(ev *DecodedEvent, dirfd int, path string, ok bool) string {
+	if !ok {
+		ev.markUnresolved(path, fmt.Errorf("%w: could not read path argument from target memory", ErrUnresolved))
+		return ""
+	}
 	if err := d.CheckValid(); err != nil {
 		ev.markUnresolved(path, fmt.Errorf("%w: notification no longer valid: %v", ErrUnresolved, err))
 		return ""
@@ -437,8 +459,8 @@ func (d *Decoder) resolveAt(ev *DecodedEvent, dirfd int, path string) string {
 
 // resolveCwd makes a path argument absolute for syscalls without a dirfd, which
 // interpret relative paths against the process cwd exactly as AT_FDCWD does.
-func (d *Decoder) resolveCwd(ev *DecodedEvent, path string) string {
-	return d.resolveAt(ev, atFdcwd, path)
+func (d *Decoder) resolveCwd(ev *DecodedEvent, path string, ok bool) string {
+	return d.resolveAt(ev, atFdcwd, path, ok)
 }
 
 // ReadString reads a NUL-terminated string from the target process's memory.
