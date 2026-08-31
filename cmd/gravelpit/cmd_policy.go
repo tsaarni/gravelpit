@@ -24,7 +24,11 @@ func cmdPolicy() *cobra.Command {
 		Use:   "lint",
 		Short: "Check policy files for errors",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result := policy.Lint(resolvePolicyDir(policyDir))
+			dir, err := resolvePolicyDir(policyDir)
+			if err != nil {
+				return err
+			}
+			result := policy.Lint(dir)
 			if !result.Ok() {
 				for _, e := range result.Errors {
 					fmt.Fprintf(os.Stderr, "  %v\n", e)
@@ -41,7 +45,11 @@ func cmdPolicy() *cobra.Command {
 		Use:   "reload",
 		Short: "Reload policies in the running supervisor",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result := policy.Lint(resolvePolicyDir(policyDir))
+			dir, err := resolvePolicyDir(policyDir)
+			if err != nil {
+				return err
+			}
+			result := policy.Lint(dir)
 			if !result.Ok() {
 				for _, e := range result.Errors {
 					fmt.Fprintf(os.Stderr, "  %v\n", e)
@@ -99,7 +107,11 @@ func cmdPolicy() *cobra.Command {
 			if err := evalCtx.Apply(ev); err != nil {
 				return err
 			}
-			result := policy.Lint(resolvePolicyDir(policyDir))
+			dir, err := resolvePolicyDir(policyDir)
+			if err != nil {
+				return err
+			}
+			result := policy.Lint(dir)
 			if !result.Ok() {
 				for _, e := range result.Errors {
 					fmt.Fprintf(os.Stderr, "  %v\n", e)
@@ -145,16 +157,20 @@ func cmdPolicy() *cobra.Command {
 	return cmd
 }
 
-// resolvePolicyDir returns the policy directory from a flag override or from config.
-func resolvePolicyDir(override string) string {
+// resolvePolicyDir returns the policy directory from a flag override or from
+// config. Returns an error if config.Load fails, instead of silently falling
+// back to the current directory: linting "." as if it were the policy dir
+// produces confusing parse errors from whatever project happens to be the
+// cwd (see #config.yaml unreadable from inside its own sandbox).
+func resolvePolicyDir(override string) (string, error) {
 	if override != "" {
-		return override
+		return override, nil
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		return "."
+		return "", fmt.Errorf("loading config to find policy dir: %w", err)
 	}
-	return cfg.PolicyDir
+	return cfg.PolicyDir, nil
 }
 
 // canonicalizeEvalPath puts an eval target through the same resolution the

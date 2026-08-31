@@ -28,3 +28,11 @@ bench:
 # Remove build artifacts.
 clean:
 	rm -rf bin/
+
+# Verify all tool profiles against their policies.
+profile-verify: build
+	go run profiles/verify.go
+
+# Re-generate discovered policies for all tool profiles.
+profile-record: build
+	go run profiles/verify.go --record

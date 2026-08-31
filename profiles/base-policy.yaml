@@ -1,0 +1,95 @@
+# Shared base policy for workflow e2e tests.
+#
+# Covers the system paths every tool needs. Per-tool policy.yaml files add
+# the tool-specific paths (build caches, config files under $HOME).
+
+- name: base-read-system
+  description: "System libraries, headers, config"
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "/usr/**") ||
+    pathMatch(path, "/lib/**") ||
+    pathMatch(path, "/lib64/**") ||
+    pathMatch(path, "/etc/**") ||
+    pathMatch(path, "/proc/**") ||
+    pathMatch(path, "/sys/**") ||
+    pathMatch(path, "/dev/**") ||
+    pathMatch(path, "/run/**") ||
+    pathMatch(path, "/bin/**") ||
+    pathMatch(path, "/sbin/**") ||
+    pathMatch(path, "/snap/**") ||
+    pathMatch(path, "/opt/**")
+
+- name: base-read-workspace
+  action: read
+  verdict: allow
+  match: pathMatch(path, "$WORKDIR/**")
+
+- name: base-read-tmp
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "/dev/shm/**")
+
+- name: base-write-workspace
+  action: [write, delete]
+  verdict: allow
+  match: pathMatch(path, "$WORKDIR/**")
+
+- name: base-write-tmp
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "/dev/shm/**")
+
+- name: base-write-dev
+  action: [write, delete]
+  verdict: allow
+  match: pathMatch(path, "/dev/**")
+
+- name: base-write-proc-self
+  description: "Tools write to /proc/self/ for fd passing and core dump filters"
+  action: write
+  verdict: allow
+  match: pathMatch(path, "/proc/self/**")
+
+- name: base-metadata-workspace
+  action: metadata
+  verdict: allow
+  match: >
+    pathMatch(path, "$WORKDIR/**") ||
+    pathMatch(path, "/tmp/**")
+
+- name: base-exec
+  action: exec
+  verdict: allow
+  match: "true"
+
+- name: base-network
+  action: connect
+  verdict: allow
+  match: "true"
+
+- name: base-read-own-binary
+  description: "A process may read the file that is its own executable image"
+  action: read
+  verdict: allow
+  match: path == process.exe
+
+- name: base-read-home-ancestors
+  description: >
+    Canonicalizing any $HOME-relative path (e.g. resolving symlinks) walks
+    it component by component, touching /, /home and $HOME on the way down.
+    These are directory entries, not content, so allowing them grants
+    nothing beyond confirming the path exists.
+  action: read
+  verdict: allow
+  match: >
+    path == "/" ||
+    path == "/home" ||
+    path == "$HOME"

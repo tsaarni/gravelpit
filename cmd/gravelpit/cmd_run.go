@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ import (
 
 	"github.com/tsaarni/gravelpit/internal/audit"
 	"github.com/tsaarni/gravelpit/internal/config"
+	"github.com/tsaarni/gravelpit/internal/discover"
 	"github.com/tsaarni/gravelpit/internal/policy"
 	"github.com/tsaarni/gravelpit/internal/process"
 	"github.com/tsaarni/gravelpit/internal/rpc"
@@ -55,6 +57,7 @@ func cmdRun() *cobra.Command {
 	var auditFile string
 	var auditLevel string
 	var pprofAddr string
+	var recordFile string
 	cmd := &cobra.Command{
 		Use:   "run -- <command> [args...]",
 		Short: "Run a command inside a sandbox",
@@ -65,7 +68,7 @@ func cmdRun() *cobra.Command {
 					return err
 				}
 			}
-			return runSandbox(policyDir, envVars, auditFile, auditLevel, pprofAddr, args)
+			return runSandbox(policyDir, envVars, auditFile, auditLevel, pprofAddr, recordFile, args)
 		},
 	}
 	cmd.Flags().StringVar(&logLevel, "log-level", "", "Log level: debug, info, warn, error")
@@ -74,10 +77,11 @@ func cmdRun() *cobra.Command {
 	cmd.Flags().StringVar(&auditFile, "audit-file", "", "Write audit log to this file")
 	cmd.Flags().StringVar(&auditLevel, "audit-level", "", "Audit level: all, denials (default from config)")
 	cmd.Flags().StringVar(&pprofAddr, "pprof", "", "Enable pprof HTTP server on this address (e.g. localhost:6060)")
+	cmd.Flags().StringVar(&recordFile, "record", "", "Write recorded policy to this file on exit")
 	return cmd
 }
 
-func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel string, pprofAddr string, args []string) error {
+func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel string, pprofAddr string, recordFile string, args []string) error {
 	// Save terminal state so we can restore it if the child dies without cleanup.
 	var savedTermios *unix.Termios
 	if termios, err := unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCGETS); err == nil {
@@ -146,6 +150,20 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 		}
 		defer auditLogger.Close()
 		onDecision = auditLogger.Log
+	}
+
+	// When --record is set, collect all audit records in memory so we can
+	// generate a policy on exit. The collector runs alongside the audit logger.
+	var recordCollector *discover.Collector
+	if recordFile != "" {
+		recordCollector = &discover.Collector{}
+		prev := onDecision
+		onDecision = func(r *schema.AuditRecord) {
+			recordCollector.Record(r)
+			if prev != nil {
+				prev(r)
+			}
+		}
 	}
 
 	// Build the notification handler.
@@ -286,6 +304,9 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 		case err := <-done:
 			signal.Stop(sigCh)
 			unix.Close(notifFd)
+			if recordCollector != nil {
+				writeRecordedPolicy(recordCollector, recordFile, args, workdir)
+			}
 			restoreTerminal()
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				os.Exit(exitErr.ExitCode())
@@ -352,4 +373,29 @@ func recvFd(sockFd int) (int, error) {
 		}
 	}
 	return -1, fmt.Errorf("no fd received")
+}
+
+// writeRecordedPolicy generates a policy YAML from collected audit records and
+// writes it to the given file path.
+func writeRecordedPolicy(collector *discover.Collector, path string, args []string, workDir string) {
+	home, _ := os.UserHomeDir()
+	// Derive the name from the output filename (e.g. "go" from "generated/go.yaml").
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+
+	records := collector.Records()
+	policy := discover.GeneratePolicy(records, name, home, workDir)
+	if err := os.WriteFile(path, []byte(policy), 0644); err != nil {
+		slog.Error("writing discover policy", "error", err, "path", path)
+		return
+	}
+
+	var allowed, denied int
+	for _, r := range records {
+		if r.Verdict == schema.VerdictAllow {
+			allowed++
+		} else {
+			denied++
+		}
+	}
+	fmt.Fprintf(os.Stderr, "\033[32m▶ gravelpit\033[0m record wrote %s (%d syscalls, %d denied)\n", path, len(records), denied)
 }
