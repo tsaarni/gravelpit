@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/tsaarni/gravelpit/internal/discover"
 	"github.com/tsaarni/gravelpit/pkg/schema"
@@ -65,20 +66,23 @@ func main() {
 		}
 
 		if *record {
+			start := time.Now()
 			err := runRecord(p, gravelpit, basePolicyPath, generatedDir)
 			if err != nil {
 				fmt.Printf("RECORD  %s ... FAIL: %v\n", p.name, err)
 				failed++
 			} else {
+				fmt.Printf("        %s took %.1fs\n", p.name, time.Since(start).Seconds())
 				passed++
 			}
 		} else {
+			start := time.Now()
 			err := runVerify(p, gravelpit, basePolicyPath, generatedDir)
 			if err != nil {
 				fmt.Printf("VERIFY  %s ... FAIL: %v\n", p.name, err)
 				failed++
 			} else {
-				fmt.Printf("VERIFY  %s ... ok\n", p.name)
+				fmt.Printf("VERIFY  %s ... ok (%.1fs)\n", p.name, time.Since(start).Seconds())
 				passed++
 			}
 		}
@@ -219,7 +223,7 @@ func runVerify(p profile, gravelpit, basePolicyPath, generatedDir string) error 
 }
 
 // readDeniedPaths reads the JSON-lines audit log and returns denied (action, path)
-// pairs, excluding exec, connect, and unresolved-path denials.
+// pairs, excluding exec, connect, unresolved-path and writability-probe denials.
 func readDeniedPaths(path string) []discover.ActionPath {
 	f, err := os.Open(path)
 	if err != nil {
@@ -241,6 +245,13 @@ func readDeniedPaths(path string) []discover.ActionPath {
 			continue
 		}
 		if rec.Unresolved != "" {
+			continue
+		}
+		// A probe directly in "/" is a mount-point writability check. Tools
+		// carry on when it is denied and writes to the filesystem root are
+		// never granted, so this is not a policy gap. Probes in any other
+		// directory are real: policy generation records them as "_tmp_*".
+		if discover.IsProbeTemp(rec.Path) && filepath.Dir(rec.Path) == "/" {
 			continue
 		}
 		paths = append(paths, discover.ActionPath{Action: rec.Action, Path: rec.Path})

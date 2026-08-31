@@ -6,6 +6,7 @@ package discover
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -74,7 +75,18 @@ func GeneratePolicyFromPaths(paths []ActionPath, name, homeDir, workDir string) 
 	}
 	seen := map[key]bool{}
 	for _, ap := range paths {
-		path := normalizePath(ap.Path, homeDir, workDir)
+		p := ap.Path
+		if IsProbeTemp(p) {
+			// A probe directly in "/" is a mount-point check. Tools carry on
+			// when it is denied, and writing to the filesystem root must never
+			// be granted, so drop it. profiles/verify.go ignores the same
+			// denial to keep verification green.
+			if filepath.Dir(p) == "/" {
+				continue
+			}
+			p = generalizeProbeTemp(p)
+		}
+		path := normalizePath(p, homeDir, workDir)
 		if isBasePath(path) {
 			continue
 		}
@@ -186,36 +198,54 @@ func collapseToGlobs(paths []string) []string {
 	return deduped
 }
 
-// globForPath returns a glob pattern covering the given path. For $HOME paths,
-// uses two directory levels for specificity (e.g. $HOME/.config/go/**).
-// Files directly in a top-level $HOME directory (e.g. $HOME/.config/curlrc)
-// are kept as exact paths to avoid overly broad patterns.
+// globForPath returns a glob pattern covering the given path.
+//
+// A path is collapsed to a two-level glob only when it lies at least three
+// components deep (e.g. $HOME/.config/go/** or /home/other/.cache/**).
+// Shallower paths are kept exact: a file directly in the root (/package.json)
+// or directly in a top-level directory (/home/package.json,
+// $HOME/.config/curlrc) would otherwise grant a whole directory tree for the
+// sake of one file. /home/package.json in particular used to collapse to
+// "/home/**", which allowed reading every file in every user's home and
+// silently masked the specific paths a tool really needs.
 func globForPath(path string) string {
-	if !strings.HasPrefix(path, "$HOME/") {
-		// Files directly in root (e.g. /uv.toml) are kept as exact paths.
-		dir := filepath.Dir(path)
-		if dir == "/" {
-			return path
-		}
-		return dir + "/**"
+	root := "$HOME"
+	rel, ok := strings.CutPrefix(path, "$HOME/")
+	if !ok {
+		// Absolute path. The root is "" so the patterns below start with "/".
+		root = ""
+		rel = strings.TrimPrefix(path, "/")
 	}
 
-	rel := strings.TrimPrefix(path, "$HOME/")
 	parts := strings.SplitN(rel, "/", 3)
-
-	// Single component: file directly in $HOME (e.g. $HOME/.curlrc).
-	if len(parts) == 1 {
+	if len(parts) < 3 {
 		return path
 	}
+	return root + "/" + parts[0] + "/" + parts[1] + "/**"
+}
 
-	// Two components: file directly in a top-level dir (e.g. $HOME/.config/curlrc).
-	// Keep as exact path to avoid matching everything in that directory.
-	if len(parts) == 2 {
-		return path
-	}
+// probeTemp matches the scratch file a tool creates to find out whether a
+// directory is writable. pnpm probes each candidate store location with
+// "_tmp_<pid>_<random>", so the name differs on every run and recording it
+// verbatim produces a rule that can never match again.
+//
+// The probe cannot simply be dropped: pnpm chooses its store by probing, so a
+// denied probe sends the store to a completely different directory (observed:
+// /tmp/.pnpm-store instead of $HOME/.local/share/pnpm/store). The profile would
+// then record a store location that only exists because the probe failed.
+var probeTemp = regexp.MustCompile(`^_tmp_[0-9]+_[0-9a-f]+$`)
 
-	// Three or more: collapse to two-level glob (e.g. $HOME/.config/go/**).
-	return "$HOME/" + parts[0] + "/" + parts[1] + "/**"
+// IsProbeTemp reports whether path is a one-shot writability probe. Policy
+// generation and profile verification both special-case these, so they must
+// agree.
+func IsProbeTemp(path string) bool {
+	return probeTemp.MatchString(filepath.Base(path))
+}
+
+// generalizeProbeTemp replaces the volatile "_tmp_<pid>_<random>" basename with
+// "_tmp_*" so the recorded rule still matches on later runs.
+func generalizeProbeTemp(path string) string {
+	return filepath.Join(filepath.Dir(path), "_tmp_*")
 }
 
 // mergeActions combines groups with identical glob sets into a single rule
