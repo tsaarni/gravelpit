@@ -1,0 +1,11 @@
+{
+  "name": "gravelpit-node-profile",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "hello": "node hello.js"
+  },
+  "dependencies": {
+    "is-odd": "3.0.1"
+  }
+}
