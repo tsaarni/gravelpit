@@ -87,7 +87,7 @@ func GeneratePolicyFromPaths(paths []ActionPath, name, homeDir, workDir string) 
 			p = generalizeProbeTemp(p)
 		}
 		path := normalizePath(p, homeDir, workDir)
-		if isBasePath(path) {
+		if isBasePath(path, ap.Action) {
 			continue
 		}
 		seen[key{ap.Action, path}] = true
@@ -121,34 +121,53 @@ type actionPaths struct {
 	dirs   []string
 }
 
-// System path prefixes that belong in a shared base policy, not per-tool.
-var basePrefixes = []string{
-	"/usr/", "/lib/", "/lib64/", "/etc/", "/proc/", "/sys/", "/dev/",
-	"/run/", "/bin/", "/sbin/", "/snap/", "/opt/", "/tmp/", "/var/tmp/",
-	"/dev/shm/",
-}
+// Base path prefixes that the shared base policy already covers.
+// Split by action because the base policy grants different prefixes for reads
+// vs writes. A path is only excluded from generation when it is already
+// allowed by the base policy for that specific action.
+var (
+	baseReadPrefixes = []string{
+		"/usr/", "/lib/", "/lib64/", "/etc/", "/proc/", "/sys/", "/dev/",
+		"/run/", "/bin/", "/sbin/", "/snap/", "/opt/", "/tmp/", "/var/tmp/",
+		"/dev/shm/",
+	}
+	baseWritePrefixes = []string{
+		"/tmp/", "/var/tmp/", "/dev/shm/", "/dev/", "/proc/self/",
+	}
+)
 
-func isBasePath(normalized string) bool {
+func isBasePath(normalized string, action schema.Action) bool {
 	if normalized == "" || normalized == "/" || normalized == "$HOME" {
 		return true
 	}
-	// /home (the parent of every user's home directory) shows up as its own
-	// denial whenever something canonicalizes a $HOME-relative path by
-	// walking it component by component (e.g. symlink resolution), touching
-	// every ancestor directory on the way down. It is as much a "given" as
-	// $HOME itself, so it belongs in the same base-policy exclusion.
 	if normalized == "/home" {
 		return true
 	}
 	if normalized == "/tmp" || normalized == "/dev/null" {
 		return true
 	}
-	for _, p := range basePrefixes {
+	if strings.HasPrefix(normalized, "$WORKDIR/") || normalized == "$WORKDIR" {
+		return true
+	}
+
+	var prefixes []string
+	switch action {
+	case schema.ActionRead:
+		prefixes = baseReadPrefixes
+	case schema.ActionWrite, schema.ActionDelete:
+		prefixes = baseWritePrefixes
+	case schema.ActionMetadata:
+		// base-metadata-workspace covers $WORKDIR and /tmp, both handled above.
+		return false
+	default:
+		return false
+	}
+	for _, p := range prefixes {
 		if strings.HasPrefix(normalized, p) {
 			return true
 		}
 	}
-	return strings.HasPrefix(normalized, "$WORKDIR/") || normalized == "$WORKDIR"
+	return false
 }
 
 func normalizePath(path, homeDir, workDir string) string {
@@ -158,15 +177,47 @@ func normalizePath(path, homeDir, workDir string) string {
 	return path
 }
 
+// siblingThreshold is the number of exact paths sharing a parent directory
+// before they are collapsed into a single dir/** glob. globForPath keeps
+// shallow paths exact to avoid granting a whole directory for one file, but
+// when many files in the same directory are observed the evidence is strong
+// enough to justify a glob.
+const siblingThreshold = 5
+
 // collapseToGlobs groups paths into sorted, deduplicated glob patterns.
 func collapseToGlobs(paths []string) []string {
 	dirs := map[string]bool{}
+
+	// Count exact (non-glob) paths per parent directory so we can promote
+	// directories with many siblings to a dir/** glob.
+	parentCount := map[string]int{}
+	var exactPaths []string
 	for _, p := range paths {
 		g := globForPath(p)
 		if g == "/**" || g == "//**" || g == "./**" {
 			continue
 		}
-		dirs[g] = true
+		if g == p {
+			// globForPath kept it exact (shallow path).
+			parentCount[filepath.Dir(p)]++
+			exactPaths = append(exactPaths, p)
+		} else {
+			dirs[g] = true
+		}
+	}
+
+	// Promote parents that exceed the threshold.
+	promoted := map[string]bool{}
+	for parent, count := range parentCount {
+		if count >= siblingThreshold {
+			promoted[parent] = true
+			dirs[parent+"/**"] = true
+		}
+	}
+	for _, p := range exactPaths {
+		if !promoted[filepath.Dir(p)] {
+			dirs[p] = true
+		}
 	}
 
 	sorted := make([]string, 0, len(dirs))

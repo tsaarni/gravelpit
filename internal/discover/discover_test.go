@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -122,5 +123,35 @@ func TestGeneratePolicyKeepsSpecificPathsVisible(t *testing.T) {
 		if !strings.Contains(policy, want) {
 			t.Errorf("policy missing %s:\n%s", want, policy)
 		}
+	}
+}
+
+// TestCollapseManySiblings checks that many exact paths in the same shallow
+// directory are collapsed into a dir/** glob instead of listing each file.
+func TestCollapseManySiblings(t *testing.T) {
+	var paths []ActionPath
+	for i := 0; i < 10; i++ {
+		paths = append(paths, ActionPath{
+			Action: schema.ActionRead,
+			Path:   fmt.Sprintf("/home/tsaarni/.fontconfig/cache-%d.dat", i),
+		})
+	}
+	// Also include a lone file in a different shallow directory to verify it
+	// stays exact.
+	paths = append(paths, ActionPath{
+		Action: schema.ActionRead,
+		Path:   "/home/tsaarni/.gitconfig",
+	})
+
+	policy := GeneratePolicyFromPaths(paths, "test", "/home/tsaarni", "/nonexistent-workdir")
+
+	if !strings.Contains(policy, `"$HOME/.fontconfig/**"`) {
+		t.Errorf("expected $HOME/.fontconfig/** glob, got:\n%s", policy)
+	}
+	if strings.Contains(policy, "cache-0.dat") {
+		t.Errorf("individual fontconfig files should be collapsed:\n%s", policy)
+	}
+	if !strings.Contains(policy, `"$HOME/.gitconfig"`) {
+		t.Errorf("lone shallow file should stay exact:\n%s", policy)
 	}
 }
