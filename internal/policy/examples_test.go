@@ -25,6 +25,7 @@ func TestExamplePolicies(t *testing.T) {
 		"$XDG_RUNTIME_DIR": "/run/user/1000",
 		"$WORKDIR":         filepath.Join(home, "work"),
 		"$TMPDIR":          "/tmp",
+		"$GRAVELPIT_SUPERVISOR_SOCK": "/run/user/1000/gravelpit/supervisor-1234.sock",
 	}
 
 	loader, err := policy.NewLoader(policy.WithVariables(vars))

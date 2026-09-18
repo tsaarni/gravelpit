@@ -135,6 +135,17 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 		}
 	}
 
+	// Create the supervisor socket path early so $GRAVELPIT_SUPERVISOR_SOCK
+	// is available when built-in policy rules are compiled.
+	if _, err := rpc.EnsureSockDir(); err != nil {
+		return 0, fmt.Errorf("creating socket directory: %w", err)
+	}
+	supervisorSock, err := rpc.NewSockPath()
+	if err != nil {
+		return 0, fmt.Errorf("generating socket path: %w", err)
+	}
+	os.Setenv(rpc.EnvSockPath, supervisorSock)
+
 	// Load policy.
 	engine, err := loadPolicy(expandedDir)
 	if err != nil {
@@ -228,7 +239,7 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 	}
 
 	// Start the RPC socket server.
-	statsSrv, err := stats.NewServer(statsCollector, reloadFn)
+	statsSrv, err := stats.NewServer(supervisorSock, statsCollector, reloadFn)
 	if err != nil {
 		slog.Warn("rpc server failed to start", "error", err)
 	} else {
@@ -265,7 +276,7 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 	// Pass the RPC socket path to the sandboxed process.
 	childEnv := append(os.Environ(), envVars...)
 	if statsSrv != nil {
-		childEnv = append(childEnv, fmt.Sprintf("%s=%s", rpc.EnvSockPath, statsSrv.SockPath()))
+		childEnv = append(childEnv, fmt.Sprintf("%s=%s", rpc.EnvSockPath, supervisorSock))
 	}
 	// Mark this re-execution as the sandbox child (see sandbox.IsSandboxChild).
 	childEnv = append(childEnv, sandbox.EnvSandboxChild+"=1")

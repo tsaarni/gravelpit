@@ -4,9 +4,13 @@ package policy
 
 import "fmt"
 
-// builtinYAML holds the two mandatory rules for protecting gravelpit itself.
+// builtinYAML holds the mandatory rules for protecting gravelpit itself.
 // They mirror the rules in policies/examples/gravelpit.yaml but are compiled
 // programmatically so they cannot be removed by deleting that file.
+//
+// allow-own-supervisor-socket wins over the deny by specificity: a full literal
+// path scores higher than a directory glob. This also outranks identical deny
+// rules in user policy.
 const builtinYAML = `
 - name: protect-gravelpit-files
   action: [write, delete]
@@ -31,6 +35,11 @@ const builtinYAML = `
     This is gravelpit's control socket. It is blocked, and reaching it would let you stop the
     sandbox you are running in. If a rule is genuinely wrong, say so and stop. The user
     will change it.
+
+- name: allow-own-supervisor-socket
+  action: connect
+  verdict: allow
+  match: family == "AF_UNIX" && pathMatch(socket, "$GRAVELPIT_SUPERVISOR_SOCK")
 `
 
 // BuiltinRules returns the compiled built-in protection rules. They must be

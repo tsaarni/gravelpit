@@ -2,14 +2,10 @@
 package stats
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/tsaarni/gravelpit/internal/rpc"
@@ -29,15 +25,8 @@ type Server struct {
 	done      chan struct{}
 }
 
-// NewServer creates a server with a unique socket path under XDG_RUNTIME_DIR.
-func NewServer(collector *Collector, reload ReloadFunc) (*Server, error) {
-	sockPath, err := uniqueSockPath()
-	if err != nil {
-		return nil, fmt.Errorf("generating socket path: %w", err)
-	}
-
-	os.Remove(sockPath)
-
+// NewServer creates a server listening on the given Unix socket path.
+func NewServer(sockPath string, collector *Collector, reload ReloadFunc) (*Server, error) {
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		return nil, err
@@ -52,11 +41,6 @@ func NewServer(collector *Collector, reload ReloadFunc) (*Server, error) {
 		sockPath:  sockPath,
 		done:      make(chan struct{}),
 	}, nil
-}
-
-// SockPath returns the socket path for passing to child processes.
-func (s *Server) SockPath() string {
-	return s.sockPath
 }
 
 // Serve accepts connections and handles requests. Blocks until Close is called.
@@ -155,20 +139,4 @@ func (s *Server) handleReload(enc *json.Encoder) {
 		return
 	}
 	enc.Encode(rpc.ReloadResponse{OK: true})
-}
-
-// uniqueSockPath returns a socket path under XDG_RUNTIME_DIR (typically /run/user/<uid>/).
-// Falls back to /tmp if XDG_RUNTIME_DIR is not set.
-func uniqueSockPath() (string, error) {
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = os.TempDir()
-	}
-
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	name := fmt.Sprintf("gravelpit-%s.sock", hex.EncodeToString(b[:]))
-	return filepath.Join(dir, name), nil
 }

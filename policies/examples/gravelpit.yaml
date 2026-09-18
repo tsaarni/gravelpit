@@ -4,7 +4,7 @@
 # watches the directory. An agent that is stuck sees giving itself access as a sensible fix,
 # not as an attack.
 #
-# Gravelpit loads the same two rules itself before reading any of your files, so deleting this
+# Gravelpit loads the same rules itself before reading any of your files, so deleting this
 # file does not open the hole. It is here so you can see the rules and change the wording.
 
 - name: protect-gravelpit-files
@@ -40,4 +40,16 @@
 # peer whose uid matches its own, and that is this agent's uid, so a connection here could
 # call supervisor_stop or kill_sandbox.
 #
-# The /tmp path is the last fallback in the socket_path chain when XDG_RUNTIME_DIR is unset.
+# The /tmp path is the last fallback in the socket directory chain when XDG_RUNTIME_DIR is
+# unset.
+
+- name: allow-own-supervisor-socket
+  action: connect
+  verdict: allow
+  match: family == "AF_UNIX" && pathMatch(socket, "$GRAVELPIT_SUPERVISOR_SOCK")
+
+# $GRAVELPIT_SUPERVISOR_SOCK is this session's own control socket. It must stay
+# reachable for "gravelpit status" and "gravelpit policy reload" to work from
+# inside the sandbox. The full path beats the directory glob on specificity, so
+# other sessions' sockets stay denied.
+
