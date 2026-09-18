@@ -34,6 +34,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
@@ -338,12 +339,14 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 	go func() { done <- child.Wait() }()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGCHLD)
+	childPid := child.Process.Pid
 
 	for {
 		select {
 		case err := <-done:
 			signal.Stop(sigCh)
+			reapAdoptedChildren(childPid)
 			unix.Close(notifFd)
 			if recordCollector != nil {
 				writeRecordedPolicy(recordCollector, recordFile, args, workdir)
@@ -354,6 +357,10 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 			}
 			return 0, err
 		case sig := <-sigCh:
+			if sig == syscall.SIGCHLD {
+				reapAdoptedChildren(childPid)
+				continue
+			}
 			// The terminal already sent the signal to the foreground process
 			// group, so the child got it too. Forward explicitly in case
 			// gravelpit was signalled directly (not via terminal).
@@ -372,6 +379,57 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 			return 128 + int(sig.(syscall.Signal)), nil
 		}
 	}
+}
+
+// reapAdoptedChildren collects zombie children that were reparented to us
+// because we are a subreaper. The direct child (childPid) is not reaped
+// here; it is handled by child.Wait().
+//
+// We peek with waitid(P_ALL, WEXITED|WNOHANG|WNOWAIT) to see which pid
+// is waitable without consuming it. If it is the direct child we stop,
+// otherwise we consume it with Wait4(pid) and loop. This avoids a race
+// with child.Wait(): Go's PID-based Wait path calls waitid(WNOWAIT)
+// then Wait4(pid), so consuming the direct child's zombie here would
+// make their Wait4 fail with ECHILD.
+func reapAdoptedChildren(childPid int) {
+	for {
+		pid := peekWaitableChild()
+		if pid <= 0 {
+			return
+		}
+		if pid == childPid {
+			// Direct child became waitable. Leave it for child.Wait().
+			return
+		}
+		// Consume this specific adopted zombie.
+		var ws unix.WaitStatus
+		_, _ = unix.Wait4(pid, &ws, unix.WNOHANG, nil)
+		slog.Debug("reaped adopted child", "pid", pid)
+	}
+}
+
+// peekWaitableChild calls waitid(P_ALL, WEXITED|WNOHANG|WNOWAIT) to check
+// if any child is waitable without consuming it. Returns the pid or 0 if
+// none is waitable. Uses a raw syscall because x/sys/unix.Siginfo does not
+// expose the si_pid field.
+func peekWaitableChild() int {
+	// siginfo_t is 128 bytes on all 64-bit Linux architectures.
+	// Layout: si_signo(4) si_errno(4) si_code(4) _pad(4) si_pid(4) ...
+	var buf [128]byte
+	_, _, errno := unix.RawSyscall6(
+		unix.SYS_WAITID,
+		uintptr(unix.P_ALL),
+		0,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unix.WEXITED|unix.WNOHANG|unix.WNOWAIT),
+		0,
+		0,
+	)
+	if errno != 0 {
+		return 0
+	}
+	pid := *(*int32)(unsafe.Pointer(&buf[16]))
+	return int(pid)
 }
 
 // loadPolicy loads and compiles policy rules from the given directory.

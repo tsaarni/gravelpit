@@ -6,11 +6,10 @@
 //     an intermediate process exits, the child is reparented to init, so the chain
 //     truncates and startedBy("git") fails intermittently for anything that
 //     daemonizes. Recording the relationship at exec time keeps it correct.
-//   - Gravelpit does NOT set PR_SET_CHILD_SUBREAPER. It does not need to: one
-//     notif fd covers every process using the filter regardless of reparenting.
-//     Setting it breaks programs that wait on their own process groups (e.g.
-//     bazel's client double-forks to daemonize its server, and a subreaper adopts
-//     the intermediate child causing wait to fail with ECHILD).
+//   - Gravelpit sets PR_SET_CHILD_SUBREAPER so that daemonized processes stay
+//     in its process tree (needed for process_vm_readv with yama ptrace_scope=1).
+//     The process table itself does not depend on subreaper behavior: one notif
+//     fd covers every process using the filter regardless of reparenting.
 //   - Identity comes from the exec target in the syscall, not from /proc. At
 //     execve notification time the exec has not happened yet, so /proc still
 //     describes the calling program. See RecordExec. The one exception is
