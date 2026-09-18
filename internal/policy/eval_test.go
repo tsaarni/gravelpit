@@ -328,17 +328,17 @@ func TestEvalContextDerivesCommFromExe(t *testing.T) {
 // written against the symlink would never fire, so eval must resolve too.
 func TestEvalContextResolvesExeSymlink(t *testing.T) {
 	dir := t.TempDir()
-	real := filepath.Join(dir, "python3.11")
-	if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	realPath := filepath.Join(dir, "python3.11")
+	if err := os.WriteFile(realPath, []byte("#!/bin/sh\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(dir, "python3")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realPath, link); err != nil {
 		t.Fatal(err)
 	}
 	// The temp dir itself may sit under a symlink, so compare against the
 	// resolved form of the real path rather than the path as constructed.
-	want, err := filepath.EvalSymlinks(real)
+	want, err := filepath.EvalSymlinks(realPath)
 	if err != nil {
 		t.Fatal(err)
 	}

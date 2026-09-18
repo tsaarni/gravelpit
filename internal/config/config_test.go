@@ -17,7 +17,7 @@ func loadFrom(t *testing.T, yaml string) *Config {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load()

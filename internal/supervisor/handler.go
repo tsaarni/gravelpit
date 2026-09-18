@@ -30,6 +30,24 @@ import (
 	"github.com/tsaarni/gravelpit/pkg/schema"
 )
 
+// sendNotif answers a seccomp notification and logs a send failure at debug
+// level. A failure means the target is gone or the fd is closed, which is not
+// actionable. Keeping the log on the error branch adds no cost to the common
+// success path.
+func sendNotif(notifFd int, resp *seccomp.NotifResp) {
+	if err := seccomp.NotifSend(notifFd, resp); err != nil {
+		slog.Debug("notif send failed", "error", err)
+	}
+}
+
+// deliverMessage delivers a message to the target and logs a failure at debug
+// level. Delivery failure is not fatal to the decision already made.
+func deliverMessage(pid uint32, msg string) {
+	if err := DeliverMessage(pid, msg); err != nil {
+		slog.Debug("message delivery failed", "pid", pid, "error", err)
+	}
+}
+
 // Handler processes seccomp notifications against a policy engine.
 type Handler struct {
 	Engine *policy.Engine
@@ -76,7 +94,7 @@ func (h *Handler) engine() *policy.Engine {
 
 // HandleSyscall processes a single intercepted syscall: decode args, evaluate
 // policy, deliver denial message, respond allow or deny.
-func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
+func (h *Handler) HandleSyscall(notifFd int, req *seccomp.Notif) {
 	start := time.Now()
 
 	ev := Decode(notifFd, req)
@@ -91,8 +109,8 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 		if isExec && h.ProcessTable != nil {
 			h.ProcessTable.RecordExec(int(req.Pid), ev.Path)
 		}
-		resp := &seccomp.SeccompNotifResp{ID: req.ID, Flags: seccomp.SECCOMP_USER_NOTIF_FLAG_CONTINUE}
-		seccomp.NotifSend(notifFd, resp)
+		resp := &seccomp.NotifResp{ID: req.ID, Flags: seccomp.UserNotifFlagContinue}
+		sendNotif(notifFd, resp)
 		if h.Stats != nil {
 			path := ev.Path
 			if path == "" {
@@ -110,8 +128,8 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 	// decoding failure that did not happen, and fills the audit log with
 	// denials for syscalls that were always going to fail.
 	if ev.EmptyPath {
-		resp := &seccomp.SeccompNotifResp{ID: req.ID, Error: -int32(unix.ENOENT)}
-		seccomp.NotifSend(notifFd, resp)
+		resp := &seccomp.NotifResp{ID: req.ID, Error: -int32(unix.ENOENT)}
+		sendNotif(notifFd, resp)
 		return
 	}
 
@@ -261,8 +279,8 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 	// Let it through so mkdir -p works when parent directories are outside the
 	// allowed write paths.
 	if decision.Verdict == policy.VerdictDeny && isMkdir(req.Data.Nr) && dirExists(ev.Path) {
-		resp := &seccomp.SeccompNotifResp{ID: req.ID, Flags: seccomp.SECCOMP_USER_NOTIF_FLAG_CONTINUE}
-		seccomp.NotifSend(notifFd, resp)
+		resp := &seccomp.NotifResp{ID: req.ID, Flags: seccomp.UserNotifFlagContinue}
+		sendNotif(notifFd, resp)
 		return
 	}
 
@@ -280,7 +298,7 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 			msg = h.DefaultDenyMessage
 		}
 		if msg != "" {
-			DeliverMessage(req.Pid, msg)
+			deliverMessage(req.Pid, msg)
 			delivered = true
 		}
 	}
@@ -385,20 +403,20 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 			LatencyUs:        latencyUs,
 			CacheHit:         cacheHit,
 		}
-		rec.Event.Action = ev.Action
-		rec.Event.Path = ev.Path
+		rec.Action = ev.Action
+		rec.Path = ev.Path
 		// Only when it differs, or every record would carry the path twice.
 		if requestedPath != ev.Path {
-			rec.Event.RequestedPath = requestedPath
+			rec.RequestedPath = requestedPath
 		}
-		rec.Event.Socket = ev.Socket
-		rec.Event.Host = ev.Host
-		rec.Event.Port = ev.Port
-		rec.Event.Family = ev.Family
-		rec.Event.Process = procInfo
-		rec.Event.Sandbox = h.Sandbox
-		rec.Event.Ancestors = ancestors
-		rec.Event.Syscall.Name = seccomp.SyscallName(int(req.Data.Nr))
+		rec.Socket = ev.Socket
+		rec.Host = ev.Host
+		rec.Port = ev.Port
+		rec.Family = ev.Family
+		rec.Process = procInfo
+		rec.Sandbox = h.Sandbox
+		rec.Ancestors = ancestors
+		rec.Syscall.Name = seccomp.SyscallName(int(req.Data.Nr))
 		if decision.Rule != nil {
 			rec.Rule = &schema.RuleRef{
 				Name: decision.Rule.Name,
@@ -409,13 +427,13 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.SeccompNotif) {
 	}
 
 	// Respond.
-	resp := &seccomp.SeccompNotifResp{ID: req.ID}
+	resp := &seccomp.NotifResp{ID: req.ID}
 	if decision.Verdict == policy.VerdictAllow {
-		resp.Flags = seccomp.SECCOMP_USER_NOTIF_FLAG_CONTINUE
+		resp.Flags = seccomp.UserNotifFlagContinue
 	} else {
-		resp.Error = -int32(denyErrno(ev.Action, decision.Errno))
+		resp.Error = -int32(denyErrno(ev.Action, decision.Errno)) //nolint:gosec // G115: errno values are small positive constants that fit int32.
 	}
-	seccomp.NotifSend(notifFd, resp)
+	sendNotif(notifFd, resp)
 }
 
 // processContext gathers the identity a rule can match on. Called only when a
@@ -462,7 +480,7 @@ func (h *Handler) ancestorNames(pid uint32) []string {
 // Keep this visible. A steady stream of these points at a decoding bug, not at
 // a misconfigured policy, and it is easy to mistake for one when the audit log
 // only shows a deny.
-func (h *Handler) denyUnresolved(notifFd int, req *seccomp.SeccompNotif, ev *DecodedEvent, start time.Time) {
+func (h *Handler) denyUnresolved(notifFd int, req *seccomp.Notif, ev *DecodedEvent, start time.Time) {
 	syscallName := seccomp.SyscallName(int(req.Data.Nr))
 
 	slog.Warn("deny unresolved path",
@@ -473,7 +491,7 @@ func (h *Handler) denyUnresolved(notifFd int, req *seccomp.SeccompNotif, ev *Dec
 		"pid", req.Pid)
 
 	msg := fmt.Sprintf("Cannot check %q because its location could not be determined, so it is blocked.", ev.UnresolvedRaw)
-	DeliverMessage(req.Pid, msg)
+	deliverMessage(req.Pid, msg)
 
 	if h.Stats != nil {
 		h.Stats.RecordDeny(string(ev.Action), ev.UnresolvedRaw, unresolvedRuleName)
@@ -489,24 +507,24 @@ func (h *Handler) denyUnresolved(notifFd int, req *seccomp.SeccompNotif, ev *Dec
 			LatencyUs:        time.Since(start).Microseconds(),
 			Unresolved:       ev.UnresolvedReason,
 		}
-		rec.Event.Action = ev.Action
-		rec.Event.RequestedPath = ev.UnresolvedRaw
+		rec.Action = ev.Action
+		rec.RequestedPath = ev.UnresolvedRaw
 		// This is a denial, so it is enriched like any other: these records are
 		// the ones that need explaining, and they should be rare.
 		procInfo, ancestors := h.processContext(req.Pid)
 		if tgid, ok := readTgid(req.Pid); ok {
 			procInfo.TGID = int(tgid)
 		}
-		rec.Event.Process = procInfo
-		rec.Event.Ancestors = ancestors
-		rec.Event.Sandbox = h.Sandbox
-		rec.Event.Syscall.Name = syscallName
+		rec.Process = procInfo
+		rec.Ancestors = ancestors
+		rec.Sandbox = h.Sandbox
+		rec.Syscall.Name = syscallName
 		rec.Rule = &schema.RuleRef{Name: unresolvedRuleName}
 		h.OnDecision(rec)
 	}
 
-	resp := &seccomp.SeccompNotifResp{ID: req.ID, Error: -int32(unix.EACCES)}
-	seccomp.NotifSend(notifFd, resp)
+	resp := &seccomp.NotifResp{ID: req.ID, Error: -int32(unix.EACCES)}
+	sendNotif(notifFd, resp)
 }
 
 // unresolvedRuleName labels denials caused by failed path resolution so they can
@@ -605,7 +623,7 @@ func lookupErrno(name string) unix.Errno {
 // blocking the goroutine indefinitely.
 func (h *Handler) Run(notifFd int) {
 	for {
-		fds := []unix.PollFd{{Fd: int32(notifFd), Events: unix.POLLIN}}
+		fds := []unix.PollFd{{Fd: int32(notifFd), Events: unix.POLLIN}} //nolint:gosec // G115: a file descriptor fits int32.
 		_, err := unix.Poll(fds, -1)
 		if err != nil {
 			if err == unix.EINTR {

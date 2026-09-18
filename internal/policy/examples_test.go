@@ -19,12 +19,12 @@ func TestExamplePolicies(t *testing.T) {
 	}
 
 	vars := map[string]string{
-		"$HOME":            home,
-		"$XDG_DATA_HOME":   filepath.Join(home, ".local/share"),
-		"$XDG_STATE_HOME":  filepath.Join(home, ".local/state"),
-		"$XDG_RUNTIME_DIR": "/run/user/1000",
-		"$WORKDIR":         filepath.Join(home, "work"),
-		"$TMPDIR":          "/tmp",
+		"$HOME":                      home,
+		"$XDG_DATA_HOME":             filepath.Join(home, ".local/share"),
+		"$XDG_STATE_HOME":            filepath.Join(home, ".local/state"),
+		"$XDG_RUNTIME_DIR":           "/run/user/1000",
+		"$WORKDIR":                   filepath.Join(home, "work"),
+		"$TMPDIR":                    "/tmp",
 		"$GRAVELPIT_SUPERVISOR_SOCK": "/run/user/1000/gravelpit/supervisor-1234.sock",
 	}
 
@@ -137,13 +137,13 @@ func TestExamplePolicies(t *testing.T) {
 	}
 }
 
-func replaceAll(s, old, new string) string {
+func replaceAll(s, old, repl string) string {
 	for {
 		i := indexOf(s, old)
 		if i < 0 {
 			return s
 		}
-		s = s[:i] + new + s[i+len(old):]
+		s = s[:i] + repl + s[i+len(old):]
 	}
 }
 

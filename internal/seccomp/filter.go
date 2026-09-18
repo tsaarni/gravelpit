@@ -111,7 +111,7 @@ func BuildFilter() []SockFilter {
 	// Check arch == AUDIT_ARCH_X86_64, if not jump to allow (last instruction).
 	// Jump offset is calculated from the next instruction.
 	// Remaining: load_nr(1) + x32_check(1) + intercepted(2*n) + denied(2*m) + allow(1)
-	allowJump := uint8(1 + 1 + len(intercepted)*2 + len(denied)*2)
+	allowJump := uint8(1 + 1 + len(intercepted)*2 + len(denied)*2) //nolint:gosec // G115: syscall lists are small; the jump offset fits uint8.
 	filter = append(filter, bpfJump(bpfJMP|bpfJEQ|bpfK, auditArchX86_64, 0, allowJump))
 
 	// Load syscall number: offsetof(seccomp_data, nr) = 0
@@ -119,7 +119,7 @@ func BuildFilter() []SockFilter {
 
 	// Check x32 bit. If set, jump to allow.
 	// Remaining: intercepted(2*n) + denied(2*m) + allow(1) - 1 (for relative jump)
-	x32Jump := uint8(len(intercepted)*2 + len(denied)*2)
+	x32Jump := uint8(len(intercepted)*2 + len(denied)*2) //nolint:gosec // G115: syscall lists are small; the jump offset fits uint8.
 	filter = append(filter, bpfJump(bpfJMP|bpfJSET|bpfK, x32Bit, x32Jump, 0))
 
 	// For each intercepted syscall: compare, on match jump to next (ret), on miss skip.

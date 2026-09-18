@@ -11,17 +11,17 @@ import (
 // the final component is left alone.
 func TestCanonicalizePathSymlinkDir(t *testing.T) {
 	root := t.TempDir()
-	real := filepath.Join(root, "real")
-	if err := os.Mkdir(real, 0o755); err != nil {
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
 	link := filepath.Join(root, "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realDir, link); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
 	got := CanonicalizePath(filepath.Join(link, "file.txt"))
-	want := filepath.Join(real, "file.txt")
+	want := filepath.Join(realDir, "file.txt")
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -33,7 +33,7 @@ func TestCanonicalizePathSymlinkDir(t *testing.T) {
 func TestCanonicalizePathFinalSymlinkKept(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target.txt")
-	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	link := filepath.Join(root, "link.txt")
@@ -53,17 +53,17 @@ func TestCanonicalizePathFinalSymlinkKept(t *testing.T) {
 // exists would let policy see a path the kernel never writes to.
 func TestCanonicalizePathMissingLeafUnderSymlink(t *testing.T) {
 	root := t.TempDir()
-	real := filepath.Join(root, "real")
-	if err := os.Mkdir(real, 0o755); err != nil {
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
 	link := filepath.Join(root, "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realDir, link); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
 
 	got := CanonicalizePath(filepath.Join(link, "new", "deep", "file.txt"))
-	want := filepath.Join(real, "new", "deep", "file.txt")
+	want := filepath.Join(realDir, "new", "deep", "file.txt")
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

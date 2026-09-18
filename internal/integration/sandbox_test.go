@@ -119,7 +119,7 @@ func runSandbox(t *testing.T, opts sandboxOpts) sandboxResult {
 	notifFd := receiveNotifFd(t, int(parentSock.Fd()))
 
 	// Signal child to proceed.
-	unix.Write(int(parentSock.Fd()), []byte{1})
+	_, _ = unix.Write(int(parentSock.Fd()), []byte{1})
 
 	var mu sync.Mutex
 	var records []*schema.AuditRecord
@@ -151,7 +151,7 @@ func runSandbox(t *testing.T, opts sandboxOpts) sandboxResult {
 		close(done)
 	}()
 
-	cmd.Wait()
+	_ = cmd.Wait()
 	parentSock.Close()
 	unix.Close(notifFd)
 	<-done
@@ -248,7 +248,7 @@ func runProbe(probe func(homeDir, workDir string)) {
 
 	// Wait for parent to acknowledge before performing probes.
 	buf := make([]byte, 1)
-	unix.Read(sockFd, buf)
+	_, _ = unix.Read(sockFd, buf)
 	unix.Close(sockFd)
 
 	// Perform syscalls that the supervisor will intercept.
@@ -283,17 +283,17 @@ func probeWrites(homeDir, workDir string) {
 func probeDeletes(homeDir, workDir string) {
 	// Create the file first so unlink has something to operate on.
 	tryOpen(filepath.Join(workDir, "deleteme.tmp"), unix.O_WRONLY|unix.O_CREAT)
-	unix.Unlink(filepath.Join(workDir, "deleteme.tmp"))
+	_ = unix.Unlink(filepath.Join(workDir, "deleteme.tmp"))
 
 	// Denied: delete outside workspace.
-	unix.Unlink(filepath.Join(homeDir, ".ssh", "config"))
+	_ = unix.Unlink(filepath.Join(homeDir, ".ssh", "config"))
 }
 
 func probeMkdirs(homeDir, workDir string) {
 	// Allowed: mkdir in workspace.
-	unix.Mkdir(filepath.Join(workDir, "newdir"), 0755)
+	_ = unix.Mkdir(filepath.Join(workDir, "newdir"), 0o755)
 	// Denied: mkdir hidden dir.
-	unix.Mkdir(filepath.Join(homeDir, ".newdir"), 0755)
+	_ = unix.Mkdir(filepath.Join(homeDir, ".newdir"), 0o755)
 }
 
 func tryOpen(path string, flags int) {
@@ -305,7 +305,7 @@ func tryOpen(path string, flags int) {
 
 func installFilter(filter []unix.SockFilter) (int, error) {
 	prog := unix.SockFprog{
-		Len:    uint16(len(filter)),
+		Len:    uint16(len(filter)), //nolint:gosec // G115: test BPF program length is small.
 		Filter: &filter[0],
 	}
 	fd, _, errno := unix.Syscall(unix.SYS_SECCOMP,
@@ -483,7 +483,7 @@ func receiveNotifFd(t *testing.T, sockFd int) int {
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

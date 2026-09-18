@@ -16,12 +16,12 @@ import (
 // the sandbox: the probe execs sh, and sh forks and execs cat. The trailing
 // "; true" matters: for a lone command sh execs it in place, which would collapse
 // the chain to a single pid and leave nothing to attribute a parent to.
-func probeExecChild(homeDir, workDir string) {
+func probeExecChild(homeDir, _ string) {
 	target := filepath.Join(homeDir, "target.txt")
-	cmd := exec.Command("/bin/sh", "-c", "cat "+target+"; true")
+	cmd := exec.Command("/bin/sh", "-c", "cat "+target+"; true") //nolint:gosec // G204: test-controlled path under a temp dir.
 	cmd.Stdout = nil
 	cmd.Stderr = os.Stderr
-	cmd.Run()
+	_ = cmd.Run()
 }
 
 func TestProcessAttributionAfterExec(t *testing.T) {

@@ -16,13 +16,17 @@ func Call(req Request) ([]byte, error) {
 		return nil, fmt.Errorf("%s not set (run this from inside a sandbox)", EnvSockPath)
 	}
 
-	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
+	// The socket path comes from GRAVELPIT_SUPERVISOR_SOCK, which the supervisor
+	// itself sets; it is a local Unix socket, not a user-supplied network target.
+	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second) //nolint:gosec // G704: local Unix socket path set by the supervisor, not an SSRF sink.
 	if err != nil {
 		return nil, fmt.Errorf("connecting to supervisor: %w", err)
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, fmt.Errorf("setting deadline: %w", err)
+	}
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)

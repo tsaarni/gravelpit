@@ -266,12 +266,12 @@ func TestRecordExecAndObservedConcurrent(t *testing.T) {
 
 func TestResolveExePath(t *testing.T) {
 	dir := t.TempDir()
-	real := filepath.Join(dir, "realbin")
-	if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0755); err != nil {
+	realBin := filepath.Join(dir, "realbin")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(dir, "linkbin")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(realBin, link); err != nil {
 		t.Fatal(err)
 	}
 
@@ -280,8 +280,8 @@ func TestResolveExePath(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"symlink resolved", link, real},
-		{"real path unchanged", real, real},
+		{"symlink resolved", link, realBin},
+		{"real path unchanged", realBin, realBin},
 		// A path that cannot be resolved is kept rather than dropped, so a
 		// process whose binary is already deleted is still named.
 		{"unresolvable kept", "/no/such/binary", "/no/such/binary"},

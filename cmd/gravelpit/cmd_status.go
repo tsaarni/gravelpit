@@ -21,7 +21,7 @@ func cmdStatus() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show sandbox runtime statistics",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			resp, err := rpc.Call(rpc.Request{Command: rpc.CmdSummary})
 			if err != nil {
 				return err
@@ -38,7 +38,7 @@ func cmdStatus() *cobra.Command {
 	recent := &cobra.Command{
 		Use:   "recent",
 		Short: "Show recent intercepted syscalls",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			resp, err := rpc.Call(rpc.Request{Command: rpc.CmdRecent})
 			if err != nil {
 				return err
@@ -55,7 +55,7 @@ func cmdStatus() *cobra.Command {
 	denies := &cobra.Command{
 		Use:   "denies",
 		Short: "Show recent denied syscalls",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			resp, err := rpc.Call(rpc.Request{Command: rpc.CmdDenies})
 			if err != nil {
 				return err
@@ -101,8 +101,10 @@ func writeSummary(out io.Writer, s *rpc.SummaryResponse) {
 					hitRate = fmt.Sprintf("%.1f%%", float64(c.Hits)/float64(total)*100)
 				}
 			}
+			// c.Bytes is a non-negative byte count, so the conversion is safe.
+			memBytes := uint64(c.Bytes) //nolint:gosec // G115: byte count is non-negative.
 			fmt.Fprintf(w, "%s\t%d/%d\t%s\t%s\t%s\t%s\n",
-				c.Name, c.Entries, c.Capacity, humanize.IBytes(uint64(c.Bytes)),
+				c.Name, c.Entries, c.Capacity, humanize.IBytes(memBytes),
 				hits, misses, hitRate)
 		}
 		w.Flush()

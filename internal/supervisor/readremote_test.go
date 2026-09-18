@@ -41,7 +41,7 @@ func mapStringBeforeGuard(t *testing.T, s string) uintptr {
 		t.Fatalf("munmap guard page: %v", errno)
 	}
 	t.Cleanup(func() {
-		unix.Syscall(unix.SYS_MUNMAP, base, uintptr(ps), 0)
+		_, _, _ = unix.Syscall(unix.SYS_MUNMAP, base, uintptr(ps), 0)
 	})
 
 	return base + uintptr(off)
@@ -56,7 +56,7 @@ func TestReadRemoteAcrossUnmappedPage(t *testing.T) {
 	addr := mapStringBeforeGuard(t, want)
 
 	got := make([]byte, unix.PathMax)
-	n := readRemote(uint32(os.Getpid()), addr, got)
+	n := readRemote(selfPid(), addr, got)
 	if n == 0 {
 		t.Fatal("readRemote returned 0 bytes for a mapped string")
 	}
@@ -87,7 +87,7 @@ func TestReadRemoteShortString(t *testing.T) {
 	addr := uintptr(unsafe.Pointer(&b[0]))
 
 	got := make([]byte, unix.PathMax)
-	n := readRemote(uint32(os.Getpid()), addr, got)
+	n := readRemote(selfPid(), addr, got)
 	if n < len(b) {
 		t.Fatalf("readRemote returned %d bytes, want at least %d", n, len(b))
 	}
@@ -100,7 +100,7 @@ func TestReadRemoteShortString(t *testing.T) {
 // unresolved, not as an empty path. An empty path is answered with a bare ENOENT
 // and no audit record, which would hide the failure.
 func TestReadStringFailureIsNotEmptyPath(t *testing.T) {
-	d := &Decoder{pid: uint32(os.Getpid())}
+	d := &Decoder{pid: selfPid()}
 
 	var ev DecodedEvent
 	if got := d.resolveAt(&ev, atFdcwd, "", false); got != "" {
@@ -117,7 +117,7 @@ func TestReadStringFailureIsNotEmptyPath(t *testing.T) {
 // TestReadStringNullPointer checks a NULL path pointer is not a read failure:
 // there is nothing to read, and the kernel rejects such a syscall itself.
 func TestReadStringNullPointer(t *testing.T) {
-	d := &Decoder{pid: uint32(os.Getpid())}
+	d := &Decoder{pid: selfPid()}
 	s, ok := d.ReadString(0)
 	if !ok {
 		t.Error("ReadString ok = false for a NULL pointer, want true")

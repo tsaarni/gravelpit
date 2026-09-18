@@ -31,7 +31,7 @@ var suppressProbePaths = []string{
 
 // probeSuppress reads each file once. Every read is denied by policy; what
 // differs is whether the denial is recorded and whether the process is told.
-func probeSuppress(homeDir, workDir string) {
+func probeSuppress(homeDir, _ string) {
 	for _, name := range suppressProbePaths {
 		tryOpen(filepath.Join(homeDir, name), unix.O_RDONLY)
 	}

@@ -18,13 +18,13 @@ import (
 // allowed. It goes through "sh -c ... ; true" so the reader is a process that
 // exec'd inside the sandbox and therefore has a process table entry, which is
 // where comm and ppid come from.
-func probeEnrich(homeDir, workDir string) {
+func probeEnrich(homeDir, _ string) {
 	denied := filepath.Join(homeDir, "link", "secret.txt")
 	allowed := filepath.Join(homeDir, "link", "public.txt")
-	cmd := exec.Command("/bin/sh", "-c", "cat "+denied+"; cat "+allowed+"; true")
+	cmd := exec.Command("/bin/sh", "-c", "cat "+denied+"; cat "+allowed+"; true") //nolint:gosec // G204: test-controlled paths under a temp dir.
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	cmd.Run()
+	_ = cmd.Run()
 }
 
 func TestAuditRecordEnrichment(t *testing.T) {

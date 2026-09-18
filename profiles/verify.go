@@ -118,7 +118,7 @@ func discoverProfiles(root string) []profile {
 }
 
 func checkAvailable(p profile, gravelpit string) bool {
-	cmd := exec.Command("bash", filepath.Join(p.dir, "run.sh"), "--check")
+	cmd := exec.Command("bash", filepath.Join(p.dir, "run.sh"), "--check") //nolint:gosec // G204: dev tool running a profile's own run.sh from the repo.
 	cmd.Env = append(os.Environ(), "GRAVELPIT_BIN="+gravelpit)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -170,16 +170,20 @@ func runRecord(p profile, gravelpit, basePolicyPath, generatedDir string) error 
 
 		// Write intermediate policy for the next iteration.
 		intermediate := discover.GeneratePolicyFromPaths(allPaths, p.name, homeDir, "/nonexistent-workdir")
-		os.WriteFile(outfile, []byte(intermediate), 0644)
+		if err := os.WriteFile(outfile, []byte(intermediate), 0644); err != nil { //nolint:gosec // G306: generated policy file is meant to be read and committed.
+			return err
+		}
 	}
 
 	if len(allPaths) == 0 {
-		os.Remove(outfile)
+		if err := os.Remove(outfile); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	} else {
 		// Use a workdir path that won't match any real path, so only $HOME
 		// substitution takes effect.
 		policy := discover.GeneratePolicyFromPaths(allPaths, p.name, homeDir, "/nonexistent-workdir")
-		if err := os.WriteFile(outfile, []byte(policy), 0644); err != nil {
+		if err := os.WriteFile(outfile, []byte(policy), 0644); err != nil { //nolint:gosec // G306: generated policy file is meant to be read and committed.
 			return err
 		}
 	}
@@ -272,12 +276,15 @@ func setupWorkdir(p profile) (string, func(), error) {
 		cleanup()
 		return "", nil, err
 	}
-	os.WriteFile(filepath.Join(workdir, "run.sh"), data, 0755)
+	if err := os.WriteFile(filepath.Join(workdir, "run.sh"), data, 0755); err != nil { //nolint:gosec // G306: run.sh must be executable in the sandbox.
+		cleanup()
+		return "", nil, err
+	}
 
 	// Copy fixtures.
 	fixtureDir := filepath.Join(p.dir, "fixture")
 	if info, err := os.Stat(fixtureDir); err == nil && info.IsDir() {
-		filepath.WalkDir(fixtureDir, func(path string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(fixtureDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -286,12 +293,16 @@ func setupWorkdir(p profile) (string, func(), error) {
 			if d.IsDir() {
 				return os.MkdirAll(target, 0755)
 			}
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // G122: dev tool copying its own fixture tree, no untrusted symlinks.
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(target, data, 0644)
+			return os.WriteFile(target, data, 0644) //nolint:gosec // G306: copied fixture files are meant to be readable.
 		})
+		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
 	}
 
 	return workdir, cleanup, nil
@@ -309,11 +320,17 @@ func buildPolicyDir(basePolicyPath, generatedPath string) (string, func(), error
 		cleanup()
 		return "", nil, err
 	}
-	os.WriteFile(filepath.Join(dir, "base-policy.yaml"), data, 0644)
+	if err := os.WriteFile(filepath.Join(dir, "base-policy.yaml"), data, 0o600); err != nil { //nolint:gosec // G703: dev tool writing into its own temp dir.
+		cleanup()
+		return "", nil, err
+	}
 
 	if generatedPath != "" {
 		if data, err := os.ReadFile(generatedPath); err == nil {
-			os.WriteFile(filepath.Join(dir, filepath.Base(generatedPath)), data, 0644)
+			if err := os.WriteFile(filepath.Join(dir, filepath.Base(generatedPath)), data, 0o600); err != nil { //nolint:gosec // G703: dev tool writing into its own temp dir.
+				cleanup()
+				return "", nil, err
+			}
 		}
 	}
 
@@ -328,7 +345,9 @@ func runGravelpit(gravelpit, policyDir, workdir, auditFile string) {
 	// (e.g. "gravelpit policy lint") from inside the sandbox it is testing,
 	// without depending on it being installed on PATH.
 	cmd.Env = append(os.Environ(), "GRAVELPIT_BIN="+gravelpit)
-	cmd.Run()
+	// The sandboxed run is expected to hit denials, so a non-zero exit is
+	// normal here. Denials are read back from the audit file, not the exit code.
+	_ = cmd.Run()
 }
 
 func findProfilesDir() (string, error) {

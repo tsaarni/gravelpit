@@ -102,7 +102,7 @@ func defaults() *Config {
 	}
 
 	return &Config{
-		PolicyDir:  filepath.Join(home, ".config", "gravelpit", "policies"),
+		PolicyDir: filepath.Join(home, ".config", "gravelpit", "policies"),
 		Audit: AuditConfig{
 			File:  filepath.Join(xdgDataHome, "gravelpit", "audit.jsonl"),
 			Level: "all",
@@ -206,7 +206,7 @@ func (h *shortHandler) Handle(_ context.Context, r slog.Record) error {
 		buf.WriteString("\033[2m") // dim
 		buf.WriteString(a.Key)
 		buf.WriteByte('=')
-		buf.WriteString(fmt.Sprintf("%v", a.Value.Any()))
+		fmt.Fprintf(&buf, "%v", a.Value.Any())
 		buf.WriteString("\033[0m")
 	}
 
@@ -216,7 +216,7 @@ func (h *shortHandler) Handle(_ context.Context, r slog.Record) error {
 		buf.WriteString("\033[2m") // dim
 		buf.WriteString(a.Key)
 		buf.WriteByte('=')
-		buf.WriteString(fmt.Sprintf("%v", a.Value.Any()))
+		fmt.Fprintf(&buf, "%v", a.Value.Any())
 		buf.WriteString("\033[0m")
 		return true
 	})

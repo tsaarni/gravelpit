@@ -23,7 +23,7 @@ func cmdPolicy() *cobra.Command {
 	lint := &cobra.Command{
 		Use:   "lint",
 		Short: "Check policy files for errors",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			dir, err := resolvePolicyDir(policyDir)
 			if err != nil {
 				return err
@@ -44,7 +44,7 @@ func cmdPolicy() *cobra.Command {
 	reload := &cobra.Command{
 		Use:   "reload",
 		Short: "Reload policies in the running supervisor",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			dir, err := resolvePolicyDir(policyDir)
 			if err != nil {
 				return err
@@ -89,7 +89,7 @@ func cmdPolicy() *cobra.Command {
 			"to describe a hypothetical caller. Supplied values are normalized the way the\n" +
 			"kernel would report them, so the answer matches what the runtime would decide.",
 		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			action, ok := policy.ParseAction(args[0])
 			if !ok {
 				return fmt.Errorf("unknown action %q", args[0])
@@ -144,7 +144,7 @@ func cmdPolicy() *cobra.Command {
 		Use:   "explain",
 		Short: "Show schema documentation for rules and events",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Print(policy.FormatExplain(policy.ExplainRule()))
 			fmt.Println("────────────────────────────────────────")
 			fmt.Println()
@@ -195,5 +195,5 @@ func canonicalizeEvalPath(path string, pid int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolving %q: %w", path, err)
 	}
-	return supervisor.CanonicalizePathForPid(abs, uint32(pid)), nil
+	return supervisor.CanonicalizePathForPid(abs, uint32(pid)), nil //nolint:gosec // G115: pid is a valid positive PID and fits uint32.
 }

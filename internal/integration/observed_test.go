@@ -18,12 +18,12 @@ import (
 // exec'd: "( read x < FILE )" runs the redirect in a subshell, and read is a
 // shell builtin, so no execve is intercepted for that pid. The trailing "; true"
 // stops the shell from exec'ing the subshell body in place.
-func probeForkOnly(homeDir, workDir string) {
+func probeForkOnly(homeDir, _ string) {
 	denied := filepath.Join(homeDir, "secret.txt")
-	cmd := exec.Command("/bin/sh", "-c", "( read x < "+denied+" ) ; true")
+	cmd := exec.Command("/bin/sh", "-c", "( read x < "+denied+" ) ; true") //nolint:gosec // G204: test-controlled path under a temp dir.
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	cmd.Run()
+	_ = cmd.Run()
 }
 
 func TestAttributionWithoutExec(t *testing.T) {

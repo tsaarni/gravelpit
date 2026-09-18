@@ -70,7 +70,7 @@ type Decoder struct {
 }
 
 // NewDecoder creates a Decoder for the given notification.
-func NewDecoder(notifFd int, req *seccomp.SeccompNotif) *Decoder {
+func NewDecoder(notifFd int, req *seccomp.Notif) *Decoder {
 	return &Decoder{
 		notifFd: notifFd,
 		id:      req.ID,
@@ -157,13 +157,13 @@ func (d *Decoder) ReadBytes(addr uintptr, size int) []byte {
 
 // Decode extracts the action and path from a seccomp notification by reading
 // the target process's memory.
-func Decode(notifFd int, req *seccomp.SeccompNotif) DecodedEvent {
+func Decode(notifFd int, req *seccomp.Notif) DecodedEvent {
 	d := NewDecoder(notifFd, req)
 	return d.Decode(req)
 }
 
 // Decode extracts the action and other fields from a seccomp notification.
-func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
+func (d *Decoder) Decode(req *seccomp.Notif) DecodedEvent {
 	nr := int(req.Data.Nr)
 
 	switch nr {
@@ -186,7 +186,7 @@ func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
 		// these are already 64-bit fields, so no truncation applies.
 		flags := 0
 		if b := d.ReadBytes(uintptr(req.Data.Args[2]), 8); b != nil {
-			flags = int(binary.LittleEndian.Uint64(b))
+			flags = int(binary.LittleEndian.Uint64(b)) //nolint:gosec // G115: open flags come from a syscall register; truncation to int is the intended ABI decode.
 		}
 		ev := DecodedEvent{Action: openAction(flags)}
 		ev.Path = d.resolveAt(&ev, dirfdArg(req.Data.Args[0]), path, pathOK)
@@ -290,7 +290,7 @@ func (d *Decoder) Decode(req *seccomp.SeccompNotif) DecodedEvent {
 	case int(unix.SYS_CONNECT):
 		ev := DecodedEvent{Action: policy.ActionConnect}
 		addrPtr := uintptr(req.Data.Args[1])
-		addrLen := int(req.Data.Args[2])
+		addrLen := int(req.Data.Args[2]) //nolint:gosec // G115: addrlen is a syscall register; the value is a small sockaddr length validated below.
 		if addrPtr != 0 && addrLen >= 2 {
 			ev = d.parseSockaddr(addrPtr, addrLen)
 		}
@@ -409,13 +409,13 @@ func openAction(flags int) policy.Action {
 // Without this every relative path fails the AT_FDCWD check, falls through to
 // the dirfd lookup, and stays relative.
 func dirfdArg(v uint64) int {
-	return int(int32(v))
+	return int(int32(v)) //nolint:gosec // G115: intended 32-bit truncation to restore the signed dirfd (see comment above).
 }
 
 // flagsArg converts a raw syscall register value into a flags int. Flag
 // arguments are also declared as int, so the same 32-bit truncation applies.
 func flagsArg(v uint64) int {
-	return int(int32(v))
+	return int(int32(v)) //nolint:gosec // G115: intended 32-bit truncation of the flags register (see comment above).
 }
 
 // resolveAt makes a path argument absolute, recording failure on ev.

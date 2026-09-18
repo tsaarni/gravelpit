@@ -148,7 +148,7 @@ func childEnviron() []string {
 func installFilter() (int, error) {
 	filterInsns := seccomp.BuildFilter()
 	prog := unix.SockFprog{
-		Len:    uint16(len(filterInsns)),
+		Len:    uint16(len(filterInsns)), //nolint:gosec // G115: BPF program length is small and fixed, far below uint16 max.
 		Filter: &filterInsns[0],
 	}
 	flags := uintptr(seccompFilterFlagNewListener | seccompFilterFlagWaitKillableRecv)
@@ -256,7 +256,11 @@ func lookPath(name string) (string, error) {
 			dir = "."
 		}
 		full := dir + "/" + name
-		if _, err := os.Stat(full); err == nil {
+		// This is PATH resolution for the command to exec, equivalent to
+		// exec.LookPath. The stat probes candidate locations; it is not an
+		// attacker-controlled file access, so the taint finding is a false
+		// positive.
+		if _, err := os.Stat(full); err == nil { //nolint:gosec // G703: PATH resolution for the command to launch, not attacker-controlled file access.
 			return full, nil
 		}
 		start = end + 1

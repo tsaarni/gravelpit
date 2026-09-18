@@ -4,7 +4,6 @@ package supervisor
 
 import (
 	"fmt"
-	"os"
 	"testing"
 )
 
@@ -51,7 +50,7 @@ func TestCanonicalizeProcSelfUsesTarget(t *testing.T) {
 // TestCanonicalizeProcSelfRealPid checks the live case: a real pid referring to
 // itself collapses to /proc/self, which is what makes shell fd redirection work.
 func TestCanonicalizeProcSelfRealPid(t *testing.T) {
-	pid := uint32(os.Getpid())
+	pid := selfPid()
 
 	got := CanonicalizePathForPid(fmt.Sprintf("/proc/%d/fd/1", pid), pid)
 	if want := "/proc/self/fd/1"; got != want {
@@ -71,7 +70,7 @@ func TestCanonicalizeNonProcUnaffected(t *testing.T) {
 	dir := t.TempDir()
 	file := dir + "/file.txt"
 
-	got := CanonicalizePathForPid(file, uint32(os.Getpid()))
+	got := CanonicalizePathForPid(file, selfPid())
 	if got != CanonicalizePath(file) {
 		t.Errorf("got %q, want same as CanonicalizePath %q", got, CanonicalizePath(file))
 	}

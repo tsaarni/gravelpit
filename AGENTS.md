@@ -3,6 +3,6 @@
 - Each source code file must have brief comment on top explaining what the file does, preferably single sentence.
 - Avoid symbols like →, use ->.
 - Avoid comment lines like // --- something ---
-- Avoid //nolint, instead fix the code.
+- Avoid //nolint, instead fix the code, unless it is clearly false positive.
 - Non-trivial logic needs a test case.
 - Performance on the syscall evaluation path is critically important, everything reasonable should be done for maximum performance.

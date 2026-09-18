@@ -346,7 +346,7 @@ func sameDirs(a, b []string) bool {
 
 func renderYAML(groups []actionPaths, name string) string {
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("# Generated policy for %s.\n", name))
+	fmt.Fprintf(&buf, "# Generated policy for %s.\n", name)
 	buf.WriteString("# Review and trim before committing.\n")
 
 	for i, g := range groups {
@@ -358,19 +358,19 @@ func renderYAML(groups []actionPaths, name string) string {
 		actions := actionLabel(g.action)
 		ruleName := fmt.Sprintf("%s-%s", name, ruleNameSuffix(g.action))
 
-		buf.WriteString(fmt.Sprintf("- name: %s\n", ruleName))
-		buf.WriteString(fmt.Sprintf("  action: %s\n", actions))
+		fmt.Fprintf(&buf, "- name: %s\n", ruleName)
+		fmt.Fprintf(&buf, "  action: %s\n", actions)
 		buf.WriteString("  verdict: allow\n")
 
 		if len(g.dirs) == 1 {
-			buf.WriteString(fmt.Sprintf("  match: pathMatch(path, \"%s\")\n", g.dirs[0]))
+			fmt.Fprintf(&buf, "  match: pathMatch(path, \"%s\")\n", g.dirs[0])
 		} else {
 			buf.WriteString("  match: >\n")
 			for j, d := range g.dirs {
 				if j < len(g.dirs)-1 {
-					buf.WriteString(fmt.Sprintf("    pathMatch(path, \"%s\") ||\n", d))
+					fmt.Fprintf(&buf, "    pathMatch(path, \"%s\") ||\n", d)
 				} else {
-					buf.WriteString(fmt.Sprintf("    pathMatch(path, \"%s\")\n", d))
+					fmt.Fprintf(&buf, "    pathMatch(path, \"%s\")\n", d)
 				}
 			}
 		}

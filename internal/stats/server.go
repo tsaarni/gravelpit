@@ -32,7 +32,10 @@ func NewServer(sockPath string, collector *Collector, reload ReloadFunc) (*Serve
 		return nil, err
 	}
 
-	os.Chmod(sockPath, 0600)
+	if err := os.Chmod(sockPath, 0600); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 
 	return &Server{
 		collector: collector,
@@ -87,15 +90,22 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	switch req.Command {
 	case rpc.CmdSummary:
-		enc.Encode(s.collector.Summary())
+		encode(enc, s.collector.Summary())
 	case rpc.CmdRecent:
-		enc.Encode(s.buildRecentResponse())
+		encode(enc, s.buildRecentResponse())
 	case rpc.CmdDenies:
-		enc.Encode(s.buildDeniesResponse())
+		encode(enc, s.buildDeniesResponse())
 	case rpc.CmdReload:
 		s.handleReload(enc)
 	default:
-		enc.Encode(rpc.ErrorResponse{Error: "unknown command: " + req.Command})
+		encode(enc, rpc.ErrorResponse{Error: "unknown command: " + req.Command})
+	}
+}
+
+// encode writes a JSON response and logs any write error at debug level.
+func encode(enc *json.Encoder, v any) {
+	if err := enc.Encode(v); err != nil {
+		slog.Debug("rpc server: encode error", "error", err)
 	}
 }
 
@@ -131,12 +141,12 @@ func (s *Server) buildDeniesResponse() *rpc.RecentResponse {
 
 func (s *Server) handleReload(enc *json.Encoder) {
 	if s.reload == nil {
-		enc.Encode(rpc.ReloadResponse{OK: false, Error: "reload not supported"})
+		encode(enc, rpc.ReloadResponse{OK: false, Error: "reload not supported"})
 		return
 	}
 	if err := s.reload(); err != nil {
-		enc.Encode(rpc.ReloadResponse{OK: false, Error: err.Error()})
+		encode(enc, rpc.ReloadResponse{OK: false, Error: err.Error()})
 		return
 	}
-	enc.Encode(rpc.ReloadResponse{OK: true})
+	encode(enc, rpc.ReloadResponse{OK: true})
 }

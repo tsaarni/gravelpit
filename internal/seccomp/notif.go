@@ -7,36 +7,36 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SeccompData matches the kernel's seccomp_data structure.
-type SeccompData struct {
+// Data matches the kernel's seccomp_data structure.
+type Data struct {
 	Nr                 int32
 	Arch               uint32
 	InstructionPointer uint64
 	Args               [6]uint64
 }
 
-// SeccompNotif matches the kernel's seccomp_notif structure.
-type SeccompNotif struct {
+// Notif matches the kernel's seccomp_notif structure.
+type Notif struct {
 	ID    uint64
 	Pid   uint32
 	Flags uint32
-	Data  SeccompData
+	Data  Data
 }
 
-// SeccompNotifResp matches the kernel's seccomp_notif_resp structure.
-type SeccompNotifResp struct {
+// NotifResp matches the kernel's seccomp_notif_resp structure.
+type NotifResp struct {
 	ID    uint64
 	Val   int64
 	Error int32
 	Flags uint32
 }
 
-// SECCOMP_USER_NOTIF_FLAG_CONTINUE tells the kernel to continue the syscall.
-const SECCOMP_USER_NOTIF_FLAG_CONTINUE = 0x00000001
+// UserNotifFlagContinue tells the kernel to continue the syscall.
+const UserNotifFlagContinue = 0x00000001
 
 // NotifRecv receives a notification from the seccomp notif fd.
-func NotifRecv(fd int) (*SeccompNotif, error) {
-	req := &SeccompNotif{}
+func NotifRecv(fd int) (*Notif, error) {
+	req := &Notif{}
 	err := ioctlNotifRecv(fd, req)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func NotifRecv(fd int) (*SeccompNotif, error) {
 }
 
 // NotifSend sends a response to a seccomp notification.
-func NotifSend(fd int, resp *SeccompNotifResp) error {
+func NotifSend(fd int, resp *NotifResp) error {
 	return ioctlNotifSend(fd, resp)
 }
 
@@ -64,7 +64,7 @@ func NotifIDValid(fd int, id uint64) error {
 	return nil
 }
 
-func ioctlNotifRecv(fd int, req *SeccompNotif) error {
+func ioctlNotifRecv(fd int, req *Notif) error {
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL,
 		uintptr(fd),
 		uintptr(unix.SECCOMP_IOCTL_NOTIF_RECV),
@@ -76,7 +76,7 @@ func ioctlNotifRecv(fd int, req *SeccompNotif) error {
 	return nil
 }
 
-func ioctlNotifSend(fd int, resp *SeccompNotifResp) error {
+func ioctlNotifSend(fd int, resp *NotifResp) error {
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL,
 		uintptr(fd),
 		uintptr(unix.SECCOMP_IOCTL_NOTIF_SEND),

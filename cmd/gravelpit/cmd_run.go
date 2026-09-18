@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -62,7 +62,7 @@ func cmdRun() *cobra.Command {
 		Use:   "run -- <command> [args...]",
 		Short: "Run a command inside a sandbox",
 		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if logLevel != "" {
 				if err := config.ConfigureSlog(logLevel); err != nil {
 					return err
@@ -104,14 +104,25 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 	}
 	restoreTerminal := func() {
 		if savedTermios != nil {
-			unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, savedTermios)
+			_ = unix.IoctlSetTermios(int(os.Stdin.Fd()), unix.TCSETS, savedTermios)
 		}
 	}
 
 	if pprofAddr != "" {
 		go func() {
 			slog.Info("pprof server listening", "addr", pprofAddr)
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/debug/pprof/", pprof.Index)
+			mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+			mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+			srv := &http.Server{
+				Addr:              pprofAddr,
+				Handler:           mux,
+				ReadHeaderTimeout: 5 * time.Second,
+			}
+			if err := srv.ListenAndServe(); err != nil {
 				slog.Warn("pprof server failed", "error", err)
 			}
 		}()
@@ -301,15 +312,19 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 	slog.Debug("sandbox child started, waiting for notif fd", "child_pid", child.Process.Pid)
 
 	// Ensure parentFd is blocking.
-	unix.SetNonblock(parentFd, false)
+	if err := unix.SetNonblock(parentFd, false); err != nil {
+		unix.Close(parentFd)
+		_ = child.Process.Kill()
+		return 0, fmt.Errorf("setting parent fd blocking: %w", err)
+	}
 
 	notifFd, err := recvFd(parentFd)
 	if err != nil {
 		unix.Close(parentFd)
-		child.Process.Kill()
+		_ = child.Process.Kill()
 		return 0, fmt.Errorf("receiving notif fd: %w", err)
 	}
-	unix.Write(parentFd, []byte{1}) // ack
+	_, _ = unix.Write(parentFd, []byte{1}) // ack
 	unix.Close(parentFd)
 
 	slog.Debug("received notif fd", "notif_fd", notifFd)
@@ -342,7 +357,7 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 			// The terminal already sent the signal to the foreground process
 			// group, so the child got it too. Forward explicitly in case
 			// gravelpit was signalled directly (not via terminal).
-			child.Process.Signal(sig)
+			_ = child.Process.Signal(sig)
 			select {
 			case <-done:
 			case <-time.After(200 * time.Millisecond):
@@ -350,7 +365,7 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 				// dies, child.Wait returns. Grandchildren that escaped to
 				// their own process group lose the seccomp notif fd when we
 				// exit, which makes their next intercepted syscall fail.
-				child.Process.Kill()
+				_ = child.Process.Kill()
 				<-done
 			}
 			restoreTerminal()
@@ -403,14 +418,14 @@ func recvFd(sockFd int) (int, error) {
 
 // writeRecordedPolicy generates a policy YAML from collected audit records and
 // writes it to the given file path.
-func writeRecordedPolicy(collector *discover.Collector, path string, args []string, workDir string) {
+func writeRecordedPolicy(collector *discover.Collector, path string, _ []string, workDir string) {
 	home, _ := os.UserHomeDir()
 	// Derive the name from the output filename (e.g. "go" from "generated/go.yaml").
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 
 	records := collector.Records()
 	policy := discover.GeneratePolicy(records, name, home, workDir)
-	if err := os.WriteFile(path, []byte(policy), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(policy), 0o600); err != nil {
 		slog.Error("writing discover policy", "error", err, "path", path)
 		return
 	}

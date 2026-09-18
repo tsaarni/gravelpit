@@ -11,6 +11,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// selfPid returns the current pid as uint32 for ResolveSyscallPath. A real pid
+// is always positive and fits uint32, so the conversion cannot overflow.
+func selfPid() uint32 {
+	pid := os.Getpid()
+	return uint32(pid) //nolint:gosec // G115: a pid is positive and fits uint32.
+}
+
 // TestDirfdArg checks that a dirfd is recovered from the raw syscall register.
 //
 // The kernel copies the register verbatim into seccomp_data.args. Userspace
@@ -53,7 +60,7 @@ func TestFlagsArg(t *testing.T) {
 
 // TestResolveSyscallPathAbsolute checks an absolute path is returned unchanged.
 func TestResolveSyscallPathAbsolute(t *testing.T) {
-	got, err := ResolveSyscallPath(uint32(os.Getpid()), atFdcwd, "/etc/passwd")
+	got, err := ResolveSyscallPath(selfPid(), atFdcwd, "/etc/passwd")
 	if err != nil {
 		t.Fatalf("ResolveSyscallPath: %v", err)
 	}
@@ -71,7 +78,7 @@ func TestResolveSyscallPathCwd(t *testing.T) {
 	}
 
 	for _, rel := range []string{"file.txt", "./file.txt", "sub/file.txt"} {
-		got, err := ResolveSyscallPath(uint32(os.Getpid()), atFdcwd, rel)
+		got, err := ResolveSyscallPath(selfPid(), atFdcwd, rel)
 		if err != nil {
 			t.Fatalf("ResolveSyscallPath(%q): %v", rel, err)
 		}
@@ -94,7 +101,7 @@ func TestResolveSyscallPathDirfd(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 
-	got, err := ResolveSyscallPath(uint32(os.Getpid()), int(f.Fd()), "file.txt")
+	got, err := ResolveSyscallPath(selfPid(), int(f.Fd()), "file.txt")
 	if err != nil {
 		t.Fatalf("ResolveSyscallPath: %v", err)
 	}
@@ -109,7 +116,7 @@ func TestResolveSyscallPathDirfd(t *testing.T) {
 // the kernel returns) instead of a policy denial, so the two must not be
 // conflated.
 func TestResolveSyscallPathEmpty(t *testing.T) {
-	_, err := ResolveSyscallPath(uint32(os.Getpid()), atFdcwd, "")
+	_, err := ResolveSyscallPath(selfPid(), atFdcwd, "")
 	if !errors.Is(err, ErrUnresolved) {
 		t.Errorf("err = %v, want ErrUnresolved", err)
 	}
@@ -133,7 +140,7 @@ func TestOtherFailuresAreNotEmptyPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := ResolveSyscallPath(uint32(os.Getpid()), tc.dirfd, tc.path)
+			_, err := ResolveSyscallPath(selfPid(), tc.dirfd, tc.path)
 			if !errors.Is(err, ErrUnresolved) {
 				t.Fatalf("err = %v, want ErrUnresolved", err)
 			}
@@ -148,11 +155,11 @@ func TestOtherFailuresAreNotEmptyPath(t *testing.T) {
 // valid fd is reported unresolved instead of yielding a relative path.
 func TestResolveSyscallPathBadDirfd(t *testing.T) {
 	// A negative value other than AT_FDCWD is invalid.
-	if _, err := ResolveSyscallPath(uint32(os.Getpid()), -7, "rel.txt"); !errors.Is(err, ErrUnresolved) {
+	if _, err := ResolveSyscallPath(selfPid(), -7, "rel.txt"); !errors.Is(err, ErrUnresolved) {
 		t.Errorf("negative dirfd: err = %v, want ErrUnresolved", err)
 	}
 	// A closed or never-opened fd has no /proc entry.
-	if _, err := ResolveSyscallPath(uint32(os.Getpid()), 999999, "rel.txt"); !errors.Is(err, ErrUnresolved) {
+	if _, err := ResolveSyscallPath(selfPid(), 999999, "rel.txt"); !errors.Is(err, ErrUnresolved) {
 		t.Errorf("unknown dirfd: err = %v, want ErrUnresolved", err)
 	}
 }
@@ -168,7 +175,7 @@ func TestResolveSyscallPathNonPathFd(t *testing.T) {
 	defer func() { _ = unix.Close(fds[0]) }()
 	defer func() { _ = unix.Close(fds[1]) }()
 
-	_, err := ResolveSyscallPath(uint32(os.Getpid()), fds[0], "rel.txt")
+	_, err := ResolveSyscallPath(selfPid(), fds[0], "rel.txt")
 	if !errors.Is(err, ErrUnresolved) {
 		t.Fatalf("err = %v, want ErrUnresolved", err)
 	}
@@ -196,7 +203,7 @@ func TestResolveSyscallPathDeletedDir(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	_, err = ResolveSyscallPath(uint32(os.Getpid()), int(f.Fd()), "rel.txt")
+	_, err = ResolveSyscallPath(selfPid(), int(f.Fd()), "rel.txt")
 	if !errors.Is(err, ErrUnresolved) {
 		t.Errorf("err = %v, want ErrUnresolved", err)
 	}
@@ -218,7 +225,7 @@ func TestResolveSyscallPathLiterallyNamedDeleted(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 
-	got, err := ResolveSyscallPath(uint32(os.Getpid()), int(f.Fd()), "file.txt")
+	got, err := ResolveSyscallPath(selfPid(), int(f.Fd()), "file.txt")
 	if err != nil {
 		t.Fatalf("ResolveSyscallPath: %v", err)
 	}
@@ -230,7 +237,7 @@ func TestResolveSyscallPathLiterallyNamedDeleted(t *testing.T) {
 // TestReadTgid checks the thread group leader is read for the current process,
 // where tid equals tgid.
 func TestReadTgid(t *testing.T) {
-	pid := uint32(os.Getpid())
+	pid := selfPid()
 	got, ok := readTgid(pid)
 	if !ok {
 		t.Fatal("readTgid returned not ok")
@@ -246,7 +253,7 @@ func TestReadCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	got, ok := ReadCwd(uint32(os.Getpid()))
+	got, ok := ReadCwd(selfPid())
 	if !ok {
 		t.Fatal("ReadCwd returned not ok")
 	}
@@ -263,7 +270,7 @@ func TestReadCwd(t *testing.T) {
 // execveat with AT_EMPTY_PATH.
 func TestResolveFdPath(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "prog")
-	if err := os.WriteFile(file, []byte("x"), 0o755); err != nil {
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -273,7 +280,7 @@ func TestResolveFdPath(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 
-	got, err := ResolveFdPath(uint32(os.Getpid()), int(f.Fd()))
+	got, err := ResolveFdPath(selfPid(), int(f.Fd()))
 	if err != nil {
 		t.Fatalf("ResolveFdPath: %v", err)
 	}

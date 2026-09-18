@@ -19,7 +19,7 @@ import (
 // probeSyscallVar opens the same file twice, first with openat and then with the
 // legacy open. Both are action "read" on the same path, so they collide in the
 // decision cache, whose key holds only the action and the target.
-func probeSyscallVar(homeDir, workDir string) {
+func probeSyscallVar(_, workDir string) {
 	target := filepath.Join(workDir, "shared.txt")
 
 	tryOpen(target, unix.O_RDONLY)

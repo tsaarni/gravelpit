@@ -835,10 +835,7 @@ func isSimplePathMatch(s string) bool {
 	}
 	// No escape sequences or interpolation.
 	inner2 := pattern[1 : len(pattern)-1]
-	if strings.ContainsAny(inner2, "\\\"") {
-		return false
-	}
-	return true
+	return !strings.ContainsAny(inner2, "\\\"")
 }
 
 // splitOnOr splits an expression on top-level || operators, respecting parentheses.

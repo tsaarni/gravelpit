@@ -16,7 +16,7 @@ func cmdConfig() *cobra.Command {
 		Use:   "explain",
 		Short: "Show config file schema documentation",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			fmt.Print(config.FormatExplainConfig(config.ExplainConfig()))
 			return nil
 		},
@@ -26,7 +26,7 @@ func cmdConfig() *cobra.Command {
 		Use:   "show",
 		Short: "Show effective merged configuration",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			out, err := config.Show()
 			if err != nil {
 				return err
