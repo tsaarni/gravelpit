@@ -19,7 +19,7 @@ integration-test: build
 
 # Run golangci-lint.
 lint:
-	golangci-lint run ./...
+	go tool -modfile=tools/go.mod golangci-lint run
 
 # Run benchmarks.
 bench:

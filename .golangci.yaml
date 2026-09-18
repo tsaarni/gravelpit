@@ -1,0 +1,19 @@
+version: "2"
+linters:
+  enable:
+    - gosec
+    - misspell
+    - revive
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
