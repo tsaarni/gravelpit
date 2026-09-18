@@ -136,6 +136,15 @@ func runRecord(p profile, gravelpit, basePolicyPath, generatedDir string) error 
 	outfile := filepath.Join(generatedDir, p.name+".yaml")
 	homeDir, _ := os.UserHomeDir()
 
+	// Always regenerate from scratch: drop any previously committed profile so
+	// recording starts from base policy only. Otherwise iteration 1 runs
+	// against the old profile, sees zero fresh denials, and the empty-result
+	// branch below deletes the file. The loop rebuilds the profile from what it
+	// discovers this run, so results no longer depend on git state.
+	if err := os.Remove(outfile); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
 	var allPaths []discover.ActionPath
 
 	fmt.Printf("RECORD  %s ... ", p.name)
