@@ -14,7 +14,6 @@ import (
 
 // Config holds the daemon configuration.
 type Config struct {
-	SocketPath         string      `yaml:"socket_path" jsonschema:"description=Unix socket path for supervisor RPC. Default: $XDG_RUNTIME_DIR/gravelpit/supervisor.sock."`
 	PolicyDir          string      `yaml:"policy_dir" jsonschema:"description=Directory containing policy YAML files. Default: ~/.config/gravelpit/policies."`
 	Audit              AuditConfig `yaml:"audit" jsonschema:"description=Audit logging settings."`
 	Cache              CacheConfig `yaml:"cache" jsonschema:"description=In-memory table sizes. Both are bounded so a long session cannot grow without limit."`
@@ -67,14 +66,8 @@ func Load() (*Config, error) {
 	}
 
 	// Expand env vars in string paths.
-	cfg.SocketPath = expandPath(cfg.SocketPath)
 	cfg.PolicyDir = expandPath(cfg.PolicyDir)
 	cfg.Audit.File = expandPath(cfg.Audit.File)
-
-	// If socket_path was not set in the file, apply the default fallback chain.
-	if cfg.SocketPath == "" {
-		cfg.SocketPath = DefaultSocketPath()
-	}
 
 	// A config file that sets a cache size to zero or a negative number would
 	// otherwise ask for an unusable table, so fall back to the default and say
@@ -109,7 +102,6 @@ func defaults() *Config {
 	}
 
 	return &Config{
-		SocketPath: DefaultSocketPath(),
 		PolicyDir:  filepath.Join(home, ".config", "gravelpit", "policies"),
 		Audit: AuditConfig{
 			File:  filepath.Join(xdgDataHome, "gravelpit", "audit.jsonl"),
@@ -122,33 +114,6 @@ func defaults() *Config {
 		DefaultDenyMessage: "You are running in a sandbox and the request was denied by policy. Stop, describe what happened and ask the user for instructions.",
 		LogLevel:           "info",
 	}
-}
-
-// DefaultSocketPath returns the socket path using the XDG fallback chain:
-//
-//	$XDG_RUNTIME_DIR/gravelpit/supervisor.sock
-//	-> /run/user/<uid>/gravelpit/supervisor.sock
-//	-> /tmp/gravelpit-<uid>/supervisor.sock
-//
-// The socket is created inside a 0700 directory so the mode of the socket
-// itself does not matter and umask cannot weaken it. This keeps other local
-// users out. It does not keep the agent out (that is the deny rule on connect).
-func DefaultSocketPath() string {
-	uid := os.Getuid()
-
-	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
-	if xdgRuntime != "" {
-		return filepath.Join(xdgRuntime, "gravelpit", "supervisor.sock")
-	}
-
-	// First fallback: /run/user/<uid>
-	runUser := fmt.Sprintf("/run/user/%d", uid)
-	if fi, err := os.Stat(runUser); err == nil && fi.IsDir() {
-		return filepath.Join(runUser, "gravelpit", "supervisor.sock")
-	}
-
-	// Final fallback: /tmp/gravelpit-<uid>
-	return fmt.Sprintf("/tmp/gravelpit-%d/supervisor.sock", uid)
 }
 
 // expandPath expands environment variables and ~ in a path.

@@ -81,7 +81,22 @@ func cmdRun() *cobra.Command {
 	return cmd
 }
 
+// runSandbox runs the sandbox session and exits the process with the child's
+// exit code (or 128+signal on a forwarded signal). The actual work happens in
+// runSandboxInner so its defers (audit log close, RPC socket cleanup) run
+// before we call os.Exit, which does not run deferred functions.
 func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel string, pprofAddr string, recordFile string, args []string) error {
+	exitCode, err := runSandboxInner(policyDir, envVars, auditFile, auditLevel, pprofAddr, recordFile, args)
+	if err != nil {
+		return err
+	}
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+	return nil
+}
+
+func runSandboxInner(policyDir string, envVars []string, auditFile string, auditLevel string, pprofAddr string, recordFile string, args []string) (exitCode int, err error) {
 	// Save terminal state so we can restore it if the child dies without cleanup.
 	var savedTermios *unix.Termios
 	if termios, err := unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCGETS); err == nil {
@@ -123,7 +138,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	// Load policy.
 	engine, err := loadPolicy(expandedDir)
 	if err != nil {
-		return fmt.Errorf("loading policy: %w", err)
+		return 0, fmt.Errorf("loading policy: %w", err)
 	}
 
 	// Engine is accessed via EngineFunc so reload can swap it atomically.
@@ -146,7 +161,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	if auditFile != "" {
 		auditLogger, err := audit.New(auditFile, auditLevel)
 		if err != nil {
-			return fmt.Errorf("setting up audit log: %w", err)
+			return 0, fmt.Errorf("setting up audit log: %w", err)
 		}
 		defer auditLogger.Close()
 		onDecision = auditLogger.Log
@@ -235,7 +250,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	// Socketpair for passing the seccomp notify fd from the child to us.
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
-		return fmt.Errorf("socketpair: %w", err)
+		return 0, fmt.Errorf("socketpair: %w", err)
 	}
 	parentFd := fds[0]
 	childSock := os.NewFile(uintptr(fds[1]), "child-sock")
@@ -244,7 +259,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	if err != nil {
 		unix.Close(parentFd)
 		childSock.Close()
-		return fmt.Errorf("reading /proc/self/exe: %w", err)
+		return 0, fmt.Errorf("reading /proc/self/exe: %w", err)
 	}
 
 	// Pass the RPC socket path to the sandboxed process.
@@ -268,7 +283,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	if err := child.Start(); err != nil {
 		unix.Close(parentFd)
 		childSock.Close()
-		return fmt.Errorf("starting sandbox child: %w", err)
+		return 0, fmt.Errorf("starting sandbox child: %w", err)
 	}
 	childSock.Close()
 
@@ -281,7 +296,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 	if err != nil {
 		unix.Close(parentFd)
 		child.Process.Kill()
-		return fmt.Errorf("receiving notif fd: %w", err)
+		return 0, fmt.Errorf("receiving notif fd: %w", err)
 	}
 	unix.Write(parentFd, []byte{1}) // ack
 	unix.Close(parentFd)
@@ -309,9 +324,9 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 			}
 			restoreTerminal()
 			if exitErr, ok := err.(*exec.ExitError); ok {
-				os.Exit(exitErr.ExitCode())
+				return exitErr.ExitCode(), nil
 			}
-			return err
+			return 0, err
 		case sig := <-sigCh:
 			// The terminal already sent the signal to the foreground process
 			// group, so the child got it too. Forward explicitly in case
@@ -328,7 +343,7 @@ func runSandbox(policyDir string, envVars []string, auditFile string, auditLevel
 				<-done
 			}
 			restoreTerminal()
-			os.Exit(128 + int(sig.(syscall.Signal)))
+			return 128 + int(sig.(syscall.Signal)), nil
 		}
 	}
 }
