@@ -20,6 +20,10 @@ Goals:
 
 Gravelpit installs a [BPF filter](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html) via seccomp to intercept system calls in the sandboxed processes. Intercepted calls are routed to a supervisor process via [`SECCOMP_RET_USER_NOTIF`](https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html). The supervisor reads syscall arguments (file paths, addresses) from the target process memory using [`process_vm_readv`](https://man7.org/linux/man-pages/man2/process_vm_readv.2.html), evaluates [CEL](https://cel.dev/) policy rules, and responds with allow or deny.
 
+Only `open()` and `connect()` are intercepted, not `read()`/`write()`. Decisions are cached and simple rules use a fast path that skips the CEL engine, so overhead is low in practice.
+
+The [`SECCOMP_RET_USER_NOTIF`](https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html) mechanism has an inherent TOCTOU race: another thread can rewrite syscall arguments while the supervisor inspects them. Allowing docker also means the agent can escalate to root.
+
 ## Quick start
 
 Build the `bin/gravelpit` binary:
