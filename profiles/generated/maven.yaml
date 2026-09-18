@@ -1,0 +1,9 @@
+# Generated policy for maven.
+# Review and trim before committing.
+
+- name: maven-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**")

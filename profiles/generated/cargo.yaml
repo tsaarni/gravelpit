@@ -1,0 +1,23 @@
+# Generated policy for cargo.
+# Review and trim before committing.
+
+- name: cargo-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cargo/.global-cache") ||
+    pathMatch(path, "$HOME/.cargo/config") ||
+    pathMatch(path, "$HOME/.gitconfig") ||
+    pathMatch(path, "$HOME/.rustup/settings.toml") ||
+    pathMatch(path, "$HOME/.rustup/toolchains") ||
+    pathMatch(path, "$HOME/.rustup/toolchains/**") ||
+    pathMatch(path, "/.cargo/config")
+
+
+- name: cargo-write
+  action: write
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cargo/.global-cache") ||
+    pathMatch(path, "$HOME/.cargo/.package-cache") ||
+    pathMatch(path, "$HOME/.cargo/.package-cache-mutate")

@@ -1,0 +1,30 @@
+# Generated policy for python-uv.
+# Review and trim before committing.
+
+- name: python-uv-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/uv/**") ||
+    pathMatch(path, "$HOME/.cargo/bin") ||
+    pathMatch(path, "$HOME/.config/uv/**") ||
+    pathMatch(path, "$HOME/.krew/bin") ||
+    pathMatch(path, "$HOME/.local/bin") ||
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.pyenv/bin") ||
+    pathMatch(path, "$HOME/.pyenv/shims") ||
+    pathMatch(path, "$HOME/.rbenv/bin") ||
+    pathMatch(path, "$HOME/.rbenv/shims") ||
+    pathMatch(path, "$HOME/go/bin") ||
+    pathMatch(path, "$HOME/sdk/go1.27.0/**") ||
+    pathMatch(path, "$HOME/storage/files/**") ||
+    pathMatch(path, "/pyproject.toml") ||
+    pathMatch(path, "/uv.toml")
+
+
+- name: python-uv-write
+  action: write
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/uv/**") ||
+    pathMatch(path, "$HOME/.local/share/**")

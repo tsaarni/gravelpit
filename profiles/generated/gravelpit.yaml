@@ -1,0 +1,7 @@
+# Generated policy for gravelpit.
+# Review and trim before committing.
+
+- name: gravelpit-read
+  action: read
+  verdict: allow
+  match: pathMatch(path, "$HOME/.config/gravelpit/**")

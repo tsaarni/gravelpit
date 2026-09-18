@@ -1,0 +1,10 @@
+# Generated policy for tshark.
+# Review and trim before committing.
+
+- name: tshark-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/wireshark/**") ||
+    pathMatch(path, "$HOME/.local/lib/**") ||
+    pathMatch(path, "/var/lib/**")

@@ -1,0 +1,9 @@
+# Generated policy for curl.
+# Review and trim before committing.
+
+- name: curl-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/curlrc") ||
+    pathMatch(path, "$HOME/.curlrc")

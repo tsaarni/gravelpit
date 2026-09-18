@@ -1,0 +1,9 @@
+# Generated policy for git.
+# Review and trim before committing.
+
+- name: git-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/git/**") ||
+    pathMatch(path, "$HOME/.gitconfig")

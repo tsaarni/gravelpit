@@ -1,0 +1,9 @@
+# Generated policy for ldapsearch.
+# Review and trim before committing.
+
+- name: ldapsearch-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.ldaprc") ||
+    pathMatch(path, "$HOME/ldaprc")

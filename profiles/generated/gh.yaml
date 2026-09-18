@@ -1,0 +1,11 @@
+# Generated policy for gh.
+# Review and trim before committing.
+
+- name: gh-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/gh/**") ||
+    pathMatch(path, "$HOME/.gitconfig") ||
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.local/state/**")

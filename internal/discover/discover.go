@@ -170,10 +170,18 @@ func isBasePath(normalized string, action schema.Action) bool {
 	return false
 }
 
+// procPidPrefix matches /proc/<numeric-pid>/ paths. Tools like jcmd and
+// jstack write to /proc/<pid>/cwd/.attach_pid<pid> to signal a target JVM.
+// The PID changes every run, so we replace it with a wildcard.
+var procPidPrefix = regexp.MustCompile(`^/proc/[0-9]+/`)
+
 func normalizePath(path, homeDir, workDir string) string {
 	// Replace workDir first since it is more specific (usually inside homeDir).
 	path = strings.Replace(path, workDir, "$WORKDIR", 1)
 	path = strings.Replace(path, homeDir, "$HOME", 1)
+	// Normalize /proc/<pid>/ to /proc/*/ so ephemeral PIDs don't end up in
+	// the generated policy.
+	path = procPidPrefix.ReplaceAllString(path, "/proc/*/")
 	return path
 }
 

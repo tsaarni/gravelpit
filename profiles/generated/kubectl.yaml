@@ -1,0 +1,27 @@
+# Generated policy for kubectl.
+# Review and trim before committing.
+
+- name: kubectl-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cargo/bin") ||
+    pathMatch(path, "$HOME/.krew/bin") ||
+    pathMatch(path, "$HOME/.kube/cache/**") ||
+    pathMatch(path, "$HOME/.kube/config") ||
+    pathMatch(path, "$HOME/.kube/kuberc") ||
+    pathMatch(path, "$HOME/.local/bin") ||
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.pyenv/bin") ||
+    pathMatch(path, "$HOME/.pyenv/shims") ||
+    pathMatch(path, "$HOME/.rbenv/bin") ||
+    pathMatch(path, "$HOME/.rbenv/shims") ||
+    pathMatch(path, "$HOME/go/bin") ||
+    pathMatch(path, "$HOME/sdk/go1.27.0/**") ||
+    pathMatch(path, "$HOME/storage/files/**")
+
+
+- name: kubectl-write
+  action: write
+  verdict: allow
+  match: pathMatch(path, "$HOME/.kube/cache/**")

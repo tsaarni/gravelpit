@@ -1,0 +1,15 @@
+# Generated policy for mvnd.
+# Review and trim before committing.
+
+- name: mvnd-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.m2/mvnd/**")
+
+
+- name: mvnd-write
+  action: write
+  verdict: allow
+  match: pathMatch(path, "$HOME/.m2/mvnd/**")

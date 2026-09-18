@@ -1,0 +1,38 @@
+# Generated policy for node.
+# Review and trim before committing.
+
+- name: node-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/pnpm/**") ||
+    pathMatch(path, "$HOME/.config/pnpm/**") ||
+    pathMatch(path, "$HOME/.gitconfig") ||
+    pathMatch(path, "$HOME/.local/package.json") ||
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.local/state/**") ||
+    pathMatch(path, "$HOME/.npm/_cacache/**") ||
+    pathMatch(path, "$HOME/.npm/_logs") ||
+    pathMatch(path, "$HOME/.npmrc") ||
+    pathMatch(path, "$HOME/package.json") ||
+    pathMatch(path, "/home/package.json") ||
+    pathMatch(path, "/package.json")
+
+
+- name: node-write
+  action: write
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/pnpm/**") ||
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.npm/_cacache/**") ||
+    pathMatch(path, "$HOME/.npm/_logs/**")
+
+
+- name: node-delete
+  action: delete
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.local/share/**") ||
+    pathMatch(path, "$HOME/.npm/_cacache/**") ||
+    pathMatch(path, "$HOME/.npm/_logs/**")

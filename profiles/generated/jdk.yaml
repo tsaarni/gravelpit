@@ -1,0 +1,13 @@
+# Generated policy for jdk.
+# Review and trim before committing.
+
+- name: jdk-read
+  action: read
+  verdict: allow
+  match: pathMatch(path, "$HOME/.local/share/**")
+
+
+- name: jdk-write
+  action: write
+  verdict: allow
+  match: pathMatch(path, "/proc/*/**")

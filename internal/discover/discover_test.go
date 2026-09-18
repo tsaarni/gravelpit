@@ -126,6 +126,24 @@ func TestGeneratePolicyKeepsSpecificPathsVisible(t *testing.T) {
 	}
 }
 
+// TestGeneratePolicyNormalizesProcPid checks that /proc/<numeric-pid>/ paths
+// are collapsed to /proc/*/** so ephemeral PIDs don't appear in the policy.
+func TestGeneratePolicyNormalizesProcPid(t *testing.T) {
+	paths := []ActionPath{
+		{Action: schema.ActionWrite, Path: "/proc/12345/cwd/.attach_pid12345"},
+		{Action: schema.ActionWrite, Path: "/proc/67890/cwd/.attach_pid67890"},
+	}
+
+	policy := GeneratePolicyFromPaths(paths, "jdk", "/home/tsaarni", "/nonexistent-workdir")
+
+	if strings.Contains(policy, "12345") || strings.Contains(policy, "67890") {
+		t.Errorf("policy contains hardcoded PIDs:\n%s", policy)
+	}
+	if !strings.Contains(policy, `"/proc/*/**"`) {
+		t.Errorf("policy missing /proc/*/** glob:\n%s", policy)
+	}
+}
+
 // TestCollapseManySiblings checks that many exact paths in the same shallow
 // directory are collapsed into a dir/** glob instead of listing each file.
 func TestCollapseManySiblings(t *testing.T) {

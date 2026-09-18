@@ -1,0 +1,29 @@
+# Generated policy for docker.
+# Review and trim before committing.
+
+- name: docker-read
+  action: read
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.docker/.token_seed") ||
+    pathMatch(path, "$HOME/.docker/buildx/**") ||
+    pathMatch(path, "$HOME/.docker/cli-plugins") ||
+    pathMatch(path, "$HOME/.docker/config.json") ||
+    pathMatch(path, "$HOME/.docker/contexts/**") ||
+    pathMatch(path, "$HOME/.gitconfig") ||
+    pathMatch(path, "$HOME/.kube/config")
+
+
+- name: docker-write
+  action: write
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.docker/.token_seed") ||
+    pathMatch(path, "$HOME/.docker/.token_seed.lock") ||
+    pathMatch(path, "$HOME/.docker/buildx/**")
+
+
+- name: docker-rw
+  action: [delete, metadata]
+  verdict: allow
+  match: pathMatch(path, "$HOME/.docker/buildx/**")
