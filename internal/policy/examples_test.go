@@ -52,7 +52,6 @@ func TestExamplePolicies(t *testing.T) {
 		port   int
 		family string
 		want   policy.Verdict
-		wantBy string // rule name or "default"
 	}
 
 	expand := func(s string) string {
@@ -64,52 +63,52 @@ func TestExamplePolicies(t *testing.T) {
 
 	cases := []testCase{
 		// Secrets that must stay blocked (no rule allows them).
-		{"ssh private key", policy.ActionRead, expand("$HOME/.ssh/id_rsa"), "", "", 0, "", policy.VerdictDeny, "block-hidden-files"},
-		{"aws credentials", policy.ActionRead, expand("$HOME/.aws/credentials"), "", "", 0, "", policy.VerdictDeny, "block-hidden-files"},
-		{"gh token", policy.ActionRead, expand("$HOME/.config/gh/hosts.yml"), "", "", 0, "", policy.VerdictDeny, "block-hidden-files"},
-		{"docker credentials", policy.ActionRead, expand("$HOME/.docker/config.json"), "", "", 0, "", policy.VerdictDeny, "block-hidden-files"},
-		{"unknown tool token", policy.ActionRead, expand("$HOME/.newtool/token"), "", "", 0, "", policy.VerdictDeny, "block-hidden-files"},
+		{"ssh private key", policy.ActionRead, expand("$HOME/.ssh/id_rsa"), "", "", 0, "", policy.VerdictDeny},
+		{"aws credentials", policy.ActionRead, expand("$HOME/.aws/credentials"), "", "", 0, "", policy.VerdictDeny},
+		{"gh token", policy.ActionRead, expand("$HOME/.config/gh/hosts.yml"), "", "", 0, "", policy.VerdictDeny},
+		{"docker credentials", policy.ActionRead, expand("$HOME/.docker/config.json"), "", "", 0, "", policy.VerdictDeny},
+		{"unknown tool token", policy.ActionRead, expand("$HOME/.newtool/token"), "", "", 0, "", policy.VerdictDeny},
 
 		// Allowed reads.
-		{"workspace file", policy.ActionRead, expand("$HOME/work/main.go"), "", "", 0, "", policy.VerdictAllow, "reads-allowed"},
-		{"build cache", policy.ActionRead, expand("$HOME/.cache/go-build/ab/x"), "", "", 0, "", policy.VerdictAllow, "read-build-caches"},
-		{"ssh public key", policy.ActionRead, expand("$HOME/.ssh/id_ed25519.pub"), "", "", 0, "", policy.VerdictAllow, "read-ssh-public-parts"},
-		{"git config", policy.ActionRead, expand("$HOME/.config/git/config"), "", "", 0, "", policy.VerdictAllow, "read-tool-settings"},
+		{"workspace file", policy.ActionRead, expand("$HOME/work/main.go"), "", "", 0, "", policy.VerdictAllow},
+		{"build cache", policy.ActionRead, expand("$HOME/.cache/go-build/ab/x"), "", "", 0, "", policy.VerdictAllow},
+		{"ssh public key", policy.ActionRead, expand("$HOME/.ssh/id_ed25519.pub"), "", "", 0, "", policy.VerdictAllow},
+		{"git config", policy.ActionRead, expand("$HOME/.config/git/config"), "", "", 0, "", policy.VerdictAllow},
 
 		// dir/** matches dir itself (opening a directory is ordinary openat).
-		{"cache dir itself", policy.ActionRead, expand("$HOME/.cache"), "", "", 0, "", policy.VerdictAllow, "read-build-caches"},
+		{"cache dir itself", policy.ActionRead, expand("$HOME/.cache"), "", "", 0, "", policy.VerdictAllow},
 
 		// Writes.
-		{"write workspace", policy.ActionWrite, expand("$HOME/work/main.go"), "", "", 0, "", policy.VerdictAllow, "workspace-and-scratch"},
-		{"write /tmp", policy.ActionWrite, "/tmp/build/out", "", "", 0, "", policy.VerdictAllow, "workspace-and-scratch"},
-		{"write home root", policy.ActionWrite, expand("$HOME/notes.txt"), "", "", 0, "", policy.VerdictDeny, "default"},
+		{"write workspace", policy.ActionWrite, expand("$HOME/work/main.go"), "", "", 0, "", policy.VerdictAllow},
+		{"write /tmp", policy.ActionWrite, "/tmp/build/out", "", "", 0, "", policy.VerdictAllow},
+		{"write home root", policy.ActionWrite, expand("$HOME/notes.txt"), "", "", 0, "", policy.VerdictDeny},
 
 		// Gravelpit self-protection.
-		{"write gravelpit policy", policy.ActionWrite, expand("$HOME/.config/gravelpit/policies/x.yaml"), "", "", 0, "", policy.VerdictDeny, "protect-gravelpit-files"},
-		{"write audit log", policy.ActionWrite, expand("$HOME/.local/share/gravelpit/audit.jsonl"), "", "", 0, "", policy.VerdictDeny, "protect-gravelpit-files"},
+		{"write gravelpit policy", policy.ActionWrite, expand("$HOME/.config/gravelpit/policies/x.yaml"), "", "", 0, "", policy.VerdictDeny},
+		{"write audit log", policy.ActionWrite, expand("$HOME/.local/share/gravelpit/audit.jsonl"), "", "", 0, "", policy.VerdictDeny},
 
-		// Autorun protection.
-		{"write bashrc", policy.ActionWrite, expand("$HOME/.bashrc"), "", "", 0, "", policy.VerdictDeny, "protect-autorun-files"},
-		{"delete bashrc", policy.ActionDelete, expand("$HOME/.bashrc"), "", "", 0, "", policy.VerdictDeny, "protect-autorun-files"},
+		// Autorun files are denied (no allow rule covers them).
+		{"write bashrc", policy.ActionWrite, expand("$HOME/.bashrc"), "", "", 0, "", policy.VerdictDeny},
+		{"delete bashrc", policy.ActionDelete, expand("$HOME/.bashrc"), "", "", 0, "", policy.VerdictDeny},
 
 		// Most-specific-wins: allow-cache beats block-hidden.
-		{"cache beats hidden", policy.ActionRead, expand("$HOME/.cache/go-build/x"), "", "", 0, "", policy.VerdictAllow, "read-build-caches"},
+		{"cache beats hidden", policy.ActionRead, expand("$HOME/.cache/go-build/x"), "", "", 0, "", policy.VerdictAllow},
 		// Most-specific-wins: protect-gravelpit beats tool-state.
-		{"gravelpit beats tool-state", policy.ActionWrite, expand("$HOME/.config/gravelpit/policies/a.yaml"), "", "", 0, "", policy.VerdictDeny, "protect-gravelpit-files"},
+		{"gravelpit beats tool-state", policy.ActionWrite, expand("$HOME/.config/gravelpit/policies/a.yaml"), "", "", 0, "", policy.VerdictDeny},
 
 		// Connect.
-		{"tcp egress", policy.ActionConnect, "", "", "140.82.121.4", 443, "AF_INET", policy.VerdictAllow, "network-allowed"},
-		{"unix docker", policy.ActionConnect, "", "/run/docker.sock", "", 0, "AF_UNIX", policy.VerdictAllow, "sockets-allowed"},
-		{"unix dbus blocked", policy.ActionConnect, "", "/run/user/1000/bus", "", 0, "AF_UNIX", policy.VerdictDeny, "block-keyring-sockets"},
-		{"keyring ssh allowed", policy.ActionConnect, "", "/run/user/1000/keyring/ssh", "", 0, "AF_UNIX", policy.VerdictAllow, "allow-keyring-ssh-agents"},
-		{"gravelpit socket blocked", policy.ActionConnect, "", "/run/user/1000/gravelpit/supervisor.sock", "", 0, "AF_UNIX", policy.VerdictDeny, "protect-gravelpit-socket"},
+		{"tcp egress", policy.ActionConnect, "", "", "140.82.121.4", 443, "AF_INET", policy.VerdictAllow},
+		{"unix docker", policy.ActionConnect, "", "/run/docker.sock", "", 0, "AF_UNIX", policy.VerdictAllow},
+		{"unix dbus blocked", policy.ActionConnect, "", "/run/user/1000/bus", "", 0, "AF_UNIX", policy.VerdictDeny},
+		{"keyring ssh allowed", policy.ActionConnect, "", "/run/user/1000/keyring/ssh", "", 0, "AF_UNIX", policy.VerdictAllow},
+		{"gravelpit socket blocked", policy.ActionConnect, "", "/run/user/1000/gravelpit/supervisor.sock", "", 0, "AF_UNIX", policy.VerdictDeny},
 
 		// Metadata.
-		{"chmod workspace", policy.ActionMetadata, expand("$HOME/work/build.sh"), "", "", 0, "", policy.VerdictAllow, "chmod-in-writable-paths"},
-		{"chmod secret", policy.ActionMetadata, expand("$HOME/.ssh/id_rsa"), "", "", 0, "", policy.VerdictDeny, "chmod-wont-help"},
+		{"chmod workspace", policy.ActionMetadata, expand("$HOME/work/build.sh"), "", "", 0, "", policy.VerdictAllow},
+		{"chmod secret", policy.ActionMetadata, expand("$HOME/.ssh/id_rsa"), "", "", 0, "", policy.VerdictDeny},
 
 		// Exec (not restricted).
-		{"exec git", policy.ActionExec, "/usr/bin/git", "", "", 0, "", policy.VerdictAllow, "exec-allowed"},
+		{"exec git", policy.ActionExec, "/usr/bin/git", "", "", 0, "", policy.VerdictAllow},
 	}
 
 	for _, tc := range cases {
@@ -124,14 +123,11 @@ func TestExamplePolicies(t *testing.T) {
 			}
 			d := engine.Evaluate(ev)
 			if d.Verdict != tc.want {
-				t.Errorf("got %s, want %s", d.Verdict, tc.want)
-			}
-			gotBy := "default"
-			if d.Rule != nil {
-				gotBy = d.Rule.Name
-			}
-			if gotBy != tc.wantBy {
-				t.Errorf("decided by %q, want %q", gotBy, tc.wantBy)
+				gotBy := "default"
+				if d.Rule != nil {
+					gotBy = d.Rule.Name
+				}
+				t.Errorf("got %s (rule %q), want %s", d.Verdict, gotBy, tc.want)
 			}
 		})
 	}

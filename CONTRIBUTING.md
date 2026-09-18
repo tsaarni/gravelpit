@@ -1,38 +1,22 @@
 # Contributing
 
-## Build
+## Build and test
 
 ```bash
-make build
+make build                # -> bin/gravelpit
+make test                 # unit tests
+make integration-test     # integration tests
+make bench                # benchmarks
+make lint                 # golangci-lint
 ```
 
-This produces `bin/gravelpit`.
+## Tool profiles
 
-## Test
-
-Unit tests:
+Each directory under [`profiles/tools/`](profiles/tools/) has a `run.sh` that exercises a toolchain (go, cargo, docker, etc.) inside the sandbox. Generated minimal policies are stored in [`profiles/generated/`](profiles/generated/).
 
 ```bash
-make test
+make profile-verify                       # verify all profiles have zero denials
+make profile-record                       # re-generate all policies
+go run profiles/verify.go go              # verify one
+go run profiles/verify.go --record go     # re-generate one
 ```
-
-Integration tests require Linux x86_64 with kernel 5.19+ and seccomp user notification support:
-
-```bash
-make integration-test
-```
-
-Benchmarks:
-
-```bash
-make bench
-```
-
-## Lint
-
-```bash
-make lint
-```
-
-Requires [golangci-lint](https://golangci-lint.run/).
-

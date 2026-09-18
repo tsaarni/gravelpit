@@ -5,7 +5,7 @@ package policy
 import "fmt"
 
 // builtinYAML holds the mandatory rules for protecting gravelpit itself.
-// They mirror the rules in policies/examples/gravelpit.yaml but are compiled
+// They mirror the rules in policies/examples/writes.yaml but are compiled
 // programmatically so they cannot be removed by deleting that file.
 //
 // allow-own-supervisor-socket wins over the deny by specificity: a full literal
