@@ -19,20 +19,11 @@
     pathMatch(path, "/package.json")
 
 
-- name: node-write
-  action: write
+- name: node-rw
+  action: [write, delete]
   verdict: allow
   match: >
     pathMatch(path, "$HOME/.cache/pnpm/**") ||
-    pathMatch(path, "$HOME/.local/share/**") ||
-    pathMatch(path, "$HOME/.npm/_cacache/**") ||
-    pathMatch(path, "$HOME/.npm/_logs/**")
-
-
-- name: node-delete
-  action: delete
-  verdict: allow
-  match: >
     pathMatch(path, "$HOME/.local/share/**") ||
     pathMatch(path, "$HOME/.npm/_cacache/**") ||
     pathMatch(path, "$HOME/.npm/_logs/**")

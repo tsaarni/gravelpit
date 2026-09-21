@@ -1,4 +1,4 @@
-// examples_test.go validates that example policy files in policies/examples/ load and compile.
+// examples_test.go validates that example policy files in examples/ load and compile.
 package policy_test
 
 import (
@@ -33,7 +33,7 @@ func TestExamplePolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rules, errs := loader.LoadDir("../../policies/examples")
+	rules, errs := loader.LoadDir("../../examples")
 	if len(errs) > 0 {
 		for _, e := range errs {
 			t.Errorf("load error: %v", e)
@@ -95,6 +95,22 @@ func TestExamplePolicies(t *testing.T) {
 		{"cache beats hidden", policy.ActionRead, expand("$HOME/.cache/go-build/x"), "", "", 0, "", policy.VerdictAllow},
 		// Most-specific-wins: protect-gravelpit beats tool-state.
 		{"gravelpit beats tool-state", policy.ActionWrite, expand("$HOME/.config/gravelpit/policies/a.yaml"), "", "", 0, "", policy.VerdictDeny},
+
+		// Known credential files blocked even inside allowed trees.
+		{"cargo credentials.toml", policy.ActionRead, expand("$HOME/.cargo/credentials.toml"), "", "", 0, "", policy.VerdictDeny},
+		{"cargo credentials", policy.ActionRead, expand("$HOME/.cargo/credentials"), "", "", 0, "", policy.VerdictDeny},
+		{"m2 settings.xml", policy.ActionRead, expand("$HOME/.m2/settings.xml"), "", "", 0, "", policy.VerdictDeny},
+		{"gradle.properties", policy.ActionRead, expand("$HOME/.gradle/gradle.properties"), "", "", 0, "", policy.VerdictDeny},
+		{"netrc", policy.ActionRead, expand("$HOME/.netrc"), "", "", 0, "", policy.VerdictDeny},
+		// Non-credential files in the same trees stay allowed.
+		{"cargo config", policy.ActionRead, expand("$HOME/.cargo/config"), "", "", 0, "", policy.VerdictAllow},
+		{"cargo registry", policy.ActionRead, expand("$HOME/.cargo/registry/src/index/serde/lib.rs"), "", "", 0, "", policy.VerdictAllow},
+		{"m2 repository", policy.ActionRead, expand("$HOME/.m2/repository/org/example/foo.jar"), "", "", 0, "", policy.VerdictAllow},
+
+		// .kube writes: cache and config allowed, auth plugin cache not.
+		{"write kube cache", policy.ActionWrite, expand("$HOME/.kube/cache/http/abc"), "", "", 0, "", policy.VerdictAllow},
+		{"write kube config", policy.ActionWrite, expand("$HOME/.kube/config"), "", "", 0, "", policy.VerdictAllow},
+		{"write kube auth cache", policy.ActionWrite, expand("$HOME/.kube/gke_gcloud_auth_plugin_cache"), "", "", 0, "", policy.VerdictDeny},
 
 		// Connect.
 		{"tcp egress", policy.ActionConnect, "", "", "140.82.121.4", 443, "AF_INET", policy.VerdictAllow},

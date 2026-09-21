@@ -1,0 +1,115 @@
+# Example policy: what the agent may change.
+#
+# Same strategy as reads.yaml: block hidden files under $HOME, then name
+# back the specific paths that tools need to write. See reads.yaml header
+# for how rule evaluation works.
+
+# Block writes to hidden files under $HOME. Everything below adds exceptions.
+
+- name: block-write-hidden-files
+  action: [write, delete]
+  verdict: deny
+  match: >
+    pathMatch(path, "$HOME/.*") || pathMatch(path, "$HOME/.*/**")
+  message: >
+    Writing '${path}' is not allowed. Do not work around this.
+
+# Workspace and temporary directories.
+
+- name: workspace-and-scratch
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/work/**") ||
+    pathMatch(path, "$WORKDIR/**") ||
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "/dev/**")
+
+# Build caches and package manager stores.
+
+- name: build-caches
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.cache/**") ||
+    pathMatch(path, "$HOME/go/pkg/**") ||
+    pathMatch(path, "$HOME/sdk/**") ||
+    pathMatch(path, "$HOME/.m2/**") ||
+    pathMatch(path, "$HOME/.npm/**") ||
+    pathMatch(path, "$HOME/.cargo/registry/**") ||
+    pathMatch(path, "$HOME/.cargo/.global-cache") ||
+    pathMatch(path, "$HOME/.cargo/.global-cache-journal") ||
+    pathMatch(path, "$HOME/.cargo/.package-cache") ||
+    pathMatch(path, "$HOME/.cargo/.package-cache-mutate") ||
+    pathMatch(path, "$HOME/.gradle/caches/**") ||
+    pathMatch(path, "$HOME/.docker/buildx/**")
+
+# Tool state directories that tools write during normal operation.
+
+- name: tool-state
+  action: [write, delete]
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/.config/gh/**") ||
+    pathMatch(path, "$HOME/.config/go/**") ||
+    pathMatch(path, "$HOME/.kube/cache/**") ||
+    pathMatch(path, "$HOME/.kube/config") ||
+    pathMatch(path, "$HOME/.wget-hsts")
+
+# ssh adds new host keys on first connection.
+
+- name: known-hosts
+  action: write
+  verdict: allow
+  match: pathMatch(path, "$HOME/.ssh/known_hosts")
+
+# Processes write to /proc/self/ for fd passing, shell redirection, and
+# coredump filter settings.
+
+- name: write-proc-self
+  action: write
+  verdict: allow
+  match: pathMatch(path, "/proc/self/**")
+
+# Gravelpit's own config and data must not be writable from inside the sandbox.
+# tool-state names specific subdirs so gravelpit is already outside any allow,
+# but this deny adds a clear message and guards against someone broadening
+# tool-state later.
+
+- name: protect-gravelpit-files
+  action: [write, delete]
+  verdict: deny
+  match: >
+    pathMatch(path, "$HOME/.config/gravelpit/**") ||
+    pathMatch(path, "$HOME/.local/share/gravelpit/**")
+  message: >
+    Writing '${path}' is not allowed. Do not work around this.
+
+# Metadata (chmod/chown).
+#
+# Most chmod attempts come from agents retrying after a permission error.
+# The deny message tells them it will not help. The allow rule covers
+# directories where writing is already permitted. Because the allow rule
+# has more literal characters in its patterns, it wins by specificity
+# over the broad deny.
+
+- name: chmod-wont-help
+  action: metadata
+  verdict: deny
+  match: "true"
+  message: >
+    Changing permissions of '${path}' is not allowed and would not help.
+    Access is decided by path, not file permissions. Do not work around this.
+
+- name: chmod-in-writable-paths
+  action: metadata
+  verdict: allow
+  match: >
+    pathMatch(path, "$HOME/work/**") ||
+    pathMatch(path, "$WORKDIR/**") ||
+    pathMatch(path, "/tmp/**") ||
+    pathMatch(path, "/var/tmp/**") ||
+    pathMatch(path, "$HOME/.cache/**") ||
+    pathMatch(path, "$HOME/go/pkg/**") ||
+    pathMatch(path, "$HOME/sdk/**")

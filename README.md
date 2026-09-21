@@ -22,6 +22,8 @@ Gravelpit installs a [BPF filter](https://www.kernel.org/doc/html/latest/userspa
 
 Only `open()` and `connect()` are intercepted, not `read()`/`write()`. Decisions are cached and simple rules use a fast path that skips the CEL engine, so overhead is low in practice.
 
+Denials are printed to the process's stderr. See [`examples/`](examples/) for how to define error messages.
+
 The [`SECCOMP_RET_USER_NOTIF`](https://man7.org/linux/man-pages/man2/seccomp_unotify.2.html) mechanism has an inherent TOCTOU race: another thread can rewrite syscall arguments while the supervisor inspects them. Allowing docker also means the agent can escalate to root.
 
 ## Quick start
@@ -65,12 +67,12 @@ cat > ~/.config/gravelpit/policies/test.yaml << 'EOF'
 EOF
 ```
 
-`$WORKDIR` expands to the current directory where you start the sandbox, and `$HOME` to the home directory. See [`policies/examples/`](policies/examples/) for fuller policies and `gravelpit policy explain` for the rule schema.
+`$WORKDIR` expands to the current directory where you start the sandbox, and `$HOME` to the home directory. See [`examples/`](examples/) for fuller policies and `gravelpit policy explain` for the rule schema.
 
 Run a command inside the sandbox:
 
 ```console
-$ bin/gravelpit run -e PS1="gravelpit> " -- bash --norc --noprofile
+$ bin/gravelpit run --env PS1="gravelpit> " -- bash --norc --noprofile
 ▶ gravelpit sandbox policy=~/.config/gravelpit/policies
 gravelpit> echo "hello from sandbox" > ~/cannot-write.txt
 [gravelpit] Writing to '/home/tsaarni/cannot-write.txt' is not allowed. Only writes to the workspace are permitted.
@@ -106,7 +108,7 @@ gravelpit config show                           # Show effective configuration
 gravelpit config explain                        # Show config schema documentation
 ```
 
-Useful `run` flags: `--policy-dir` (default `~/.config/gravelpit/policies`), `-e KEY=VALUE`, `--audit-file`, `--audit-level all|denials`, `--log-level`, `--record` (write discovered policy to a file on exit).
+Useful `run` flags: `--policy-dir` (default `~/.config/gravelpit/policies`), `--env KEY=VALUE`, `--audit-file`, `--audit-level all|denials`, `--log-level`, `--record` (write discovered policy to a file on exit).
 
 ## Contributing
 

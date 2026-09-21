@@ -1,7 +1,15 @@
-# What the agent can see.
+# Example policy: what the agent can see and connect to.
 #
-# Reads, exec and network are open. Hidden files under $HOME are blocked, then
-# specific paths are named back for toolchains that need them.
+# Rules are evaluated by specificity, not file order. When multiple rules
+# match, the one whose pattern has the most literal characters wins. Ties
+# go to deny. This means a broad allow and a narrow deny can coexist: the
+# narrow deny wins where it applies, the broad allow covers the rest.
+#
+# Strategy: allow all reads, then block hidden files under $HOME (they
+# usually hold credentials), then name back the specific paths that
+# toolchains need.
+
+# Open reads, exec and network.
 
 - name: reads-allowed
   action: read
@@ -23,7 +31,7 @@
   verdict: allow
   match: family == "AF_UNIX"
 
-# --- Hidden files in $HOME are blocked unless named below --------------------
+# Block hidden files under $HOME. Everything below adds exceptions.
 
 - name: block-hidden-files
   action: read
@@ -31,7 +39,9 @@
   match: >
     pathMatch(path, "$HOME/.*") || pathMatch(path, "$HOME/.*/**")
   message: >
-    Reading '${path}' is not allowed and cannot be worked around.
+    Reading '${path}' is not allowed. Do not work around this.
+
+# Build caches and package manager stores.
 
 - name: read-caches
   action: read
@@ -39,16 +49,30 @@
   match: >
     pathMatch(path, "$HOME/.cache/**") ||
     pathMatch(path, "$HOME/.npm/**") ||
-    pathMatch(path, "$HOME/.m2/**") ||
+    pathMatch(path, "$HOME/.m2/mvnd/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**") ||
     pathMatch(path, "$HOME/.gradle/caches/**")
+
+# Language toolchain directories.
+
+  # Credential files that live inside otherwise-allowed trees. Each pattern
+  # outscores the broad ** allow that covers its parent directory, so the deny
+  # wins by specificity. Files only reachable through block-hidden-files are
+  # listed too as defense in depth.
+- name: block-known-credentials
+  action: read
+  verdict: deny
+  match: >
+    pathMatch(path, "$HOME/.cargo/credentials*") ||
+    pathMatch(path, "$HOME/.netrc")
+  message: >
+    Reading '${path}' is not allowed. Do not work around this.
 
 - name: read-toolchains
   action: read
   verdict: allow
   match: >
-    pathMatch(path, "$HOME/.cargo/registry/**") ||
-    pathMatch(path, "$HOME/.cargo/bin/**") ||
-    pathMatch(path, "$HOME/.cargo/env") ||
+    pathMatch(path, "$HOME/.cargo/**") ||
     pathMatch(path, "$HOME/.rustup/**") ||
     pathMatch(path, "$HOME/.nvm/**") ||
     pathMatch(path, "$HOME/.pyenv/**") ||
@@ -60,6 +84,8 @@
     pathMatch(path, "$HOME/.local/share/**") ||
     pathMatch(path, "$HOME/.local/state/**")
 
+# Tool configuration files. These hold preferences, not credentials.
+
 - name: read-tool-settings
   action: read
   verdict: allow
@@ -67,10 +93,13 @@
     pathMatch(path, "$HOME/.config/git/**") ||
     pathMatch(path, "$HOME/.config/go/**") ||
     pathMatch(path, "$HOME/.config/gh/config.yml") ||
+    pathMatch(path, "$HOME/.config/pnpm/**") ||
+    pathMatch(path, "$HOME/.config/wireshark/**") ||
     pathMatch(path, "$HOME/.gitconfig") ||
     pathMatch(path, "$HOME/.gitignore*") ||
     pathMatch(path, "$HOME/.terminfo/**") ||
     pathMatch(path, "$HOME/.kube/config") ||
+    pathMatch(path, "$HOME/.kube/kuberc") ||
     pathMatch(path, "$HOME/.kube/cache/**") ||
     pathMatch(path, "$HOME/.npmrc") ||
     pathMatch(path, "$HOME/.wget-hsts") ||
@@ -78,15 +107,25 @@
     pathMatch(path, "$HOME/.bazelrc") ||
     pathMatch(path, "$HOME/.bazeliskrc")
 
+# Docker files that do not contain credentials.
+
 - name: read-docker
   action: read
   verdict: allow
   match: >
     pathMatch(path, "$HOME/.docker/cli-plugins/**") ||
     pathMatch(path, "$HOME/.docker/contexts/**") ||
-    pathMatch(path, "$HOME/.docker/buildx/**")
+    pathMatch(path, "$HOME/.docker/buildx/**") ||
+    pathMatch(path, "$HOME/.docker/.token_seed")
 
-# config.json can contain registry auth tokens. Only docker may read it.
+# Credential files: only the owning tool may read them.
+#
+# process.exe restricts the rule to a specific binary. This means cat,
+# python, and the agent's file reader cannot access the file even though
+# the tool itself can. scp, sftp and rsync all exec /usr/bin/ssh, so
+# they are covered by the ssh rule too.
+
+# docker config.json can contain registry auth tokens.
 - name: allow-docker-to-read-own-config
   action: read
   verdict: allow
@@ -94,12 +133,28 @@
     pathMatch(process.exe, "/usr/bin/docker*") &&
     pathMatch(path, "$HOME/.docker/config.json")
 
+# hosts.yml holds the gh OAuth token.
+- name: allow-gh-to-read-own-token
+  action: read
+  verdict: allow
+  match: process.exe == "/usr/bin/gh" && pathMatch(path, "$HOME/.config/gh/hosts.yml")
+
+# ssh private keys for git fetch/push over ssh.
+- name: allow-ssh-to-read-own-keys
+  action: read
+  verdict: allow
+  match: process.exe == "/usr/bin/ssh" && pathMatch(path, "$HOME/.ssh/id_*")
+
+# Gravelpit reads its own config and policy files from inside the sandbox.
+
 - name: read-gravelpit-config
   action: read
   verdict: allow
   match: >
     pathMatch(path, "$HOME/.config/gravelpit/**") ||
     pathMatch(path, "$HOME/.local/share/gravelpit/**")
+
+# SSH public parts and shell startup files.
 
 - name: read-ssh-public-parts
   action: read
@@ -109,29 +164,19 @@
     pathMatch(path, "$HOME/.ssh/known_hosts*") ||
     pathMatch(path, "$HOME/.ssh/*.pub")
 
-# ssh needs to read private keys for git fetch/push over ssh. Granting it
-# only to /usr/bin/ssh means cat, python and the agent's file reader stay
-# blocked. scp, sftp and rsync all exec ssh, so they are covered too.
-- name: allow-ssh-to-read-own-keys
-  action: read
-  verdict: allow
-  match: process.exe == "/usr/bin/ssh" && pathMatch(path, "$HOME/.ssh/id_*")
-
-# hosts.yml holds the gh OAuth token. Only gh itself may read it.
-- name: allow-gh-to-read-own-token
-  action: read
-  verdict: allow
-  match: process.exe == "/usr/bin/gh" && pathMatch(path, "$HOME/.config/gh/hosts.yml")
-
 - name: read-shell-startup
   action: read
   verdict: allow
   match: >
     pathMatch(path, "$HOME/.profile") ||
     pathMatch(path, "$HOME/.bashrc") ||
-    pathMatch(path, "$HOME/.bash_profile")
+    pathMatch(path, "$HOME/.bash_profile") ||
+    pathMatch(path, "$HOME/.inputrc")
 
-# --- Socket denies -----------------------------------------------------------
+# Unix socket restrictions.
+#
+# Desktop keyrings and secret services are blocked. ssh-agent is allowed
+# because git needs it for key-based authentication.
 
 - name: block-keyring-sockets
   action: connect
@@ -147,7 +192,7 @@
       pathMatch(socket, "$HOME/.gnupg/S.*")
     )
   message: >
-    Connecting to '${socket}' is not allowed and cannot be worked around.
+    Connecting to '${socket}' is not allowed. Do not work around this.
 
 - name: allow-ssh-agent-sockets
   action: connect
@@ -159,6 +204,7 @@
       pathMatch(socket, "/tmp/ssh-*/agent.*")
     )
 
+# Gravelpit's control socket must not be accessible from inside the sandbox.
 - name: protect-gravelpit-socket
   action: connect
   verdict: deny
@@ -168,4 +214,4 @@
       pathMatch(socket, "/tmp/gravelpit-*/**")
     )
   message: >
-    Connecting to '${socket}' is not allowed and cannot be worked around.
+    Connecting to '${socket}' is not allowed. Do not work around this.

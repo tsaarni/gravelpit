@@ -19,8 +19,8 @@ type Rule struct {
 	Verdict Verdict `yaml:"verdict" json:"verdict" jsonschema:"description=Decision when the rule matches: allow or deny."`
 	// CEL expression evaluated against the event.
 	Match string `yaml:"match" json:"match" jsonschema:"description=CEL expression evaluated against the event. Available variables: path\\, requestedPath\\, action\\, syscall.name\\, syscall.number\\, process.pid\\, process.tgid\\, process.ppid\\, process.exe\\, process.comm\\, process.cwd\\, host\\, port\\, family\\, socket\\, ancestors\\, sandbox.id\\, sandbox.command\\, sandbox.workdir. Functions: pathMatch(path\\, pattern)\\, startedBy(name). process.cmdline is declared but never populated\\, so a rule reading it never matches."`
-	// Notification shown to the user on denial. Supports ${path} and ${requestedPath} placeholders.
-	Message string `yaml:"message" json:"message,omitempty" jsonschema:"description=Notification shown to the user on denial. Supports ${path} and ${requestedPath} placeholders."`
+	// Notification shown to the user on denial. Supports ${path}, ${requestedPath} and ${socket} placeholders.
+	Message string `yaml:"message" json:"message,omitempty" jsonschema:"description=Notification shown to the user on denial. Supports ${path}, ${requestedPath} and ${socket} placeholders."`
 	// Error code returned on denial: EACCES, ENOENT, EROFS, EPERM. Defaults to EACCES.
 	Errno string `yaml:"errno" json:"errno,omitempty" jsonschema:"description=Error code returned on denial: EACCES\\, ENOENT\\, EROFS\\, EPERM. Defaults to EACCES."`
 	// Whether to write this decision to the audit log. Defaults to true. Set to false to suppress high-volume noise.

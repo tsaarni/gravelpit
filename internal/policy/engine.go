@@ -695,6 +695,7 @@ func interpolateMessage(msg string, ev *Event) string {
 	}
 	msg = strings.ReplaceAll(msg, "${path}", ev.Path)
 	msg = strings.ReplaceAll(msg, "${requestedPath}", ev.RequestedPath)
+	msg = strings.ReplaceAll(msg, "${socket}", ev.Socket)
 	return msg
 }
 

@@ -6,10 +6,19 @@
   verdict: allow
   match: >
     pathMatch(path, "$HOME/.local/share/**") ||
-    pathMatch(path, "$HOME/.m2/mvnd/**")
+    pathMatch(path, "$HOME/.m2/mvnd/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**")
 
 
 - name: mvnd-write
   action: write
   verdict: allow
-  match: pathMatch(path, "$HOME/.m2/mvnd/**")
+  match: >
+    pathMatch(path, "$HOME/.m2/mvnd/**") ||
+    pathMatch(path, "$HOME/.m2/repository/**")
+
+
+- name: mvnd-delete
+  action: delete
+  verdict: allow
+  match: pathMatch(path, "$HOME/.m2/repository/**")

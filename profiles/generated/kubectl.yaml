@@ -21,7 +21,7 @@
     pathMatch(path, "$HOME/storage/files/**")
 
 
-- name: kubectl-write
-  action: write
+- name: kubectl-rw
+  action: [write, delete]
   verdict: allow
   match: pathMatch(path, "$HOME/.kube/cache/**")
