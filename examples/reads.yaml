@@ -51,6 +51,7 @@
     pathMatch(path, "$HOME/.npm/**") ||
     pathMatch(path, "$HOME/.m2/mvnd/**") ||
     pathMatch(path, "$HOME/.m2/repository/**") ||
+    pathMatch(path, "$HOME/.m2/wrapper/**") ||
     pathMatch(path, "$HOME/.gradle/caches/**")
 
 # Language toolchain directories.
