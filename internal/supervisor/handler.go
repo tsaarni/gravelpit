@@ -275,6 +275,22 @@ func (h *Handler) HandleSyscall(notifFd int, req *seccomp.Notif) {
 		h.ProcessTable.RecordExec(int(req.Pid), ev.Path)
 	}
 
+	// When a denial targets a non-existent file, return ENOENT instead of
+	// EACCES. The kernel would have returned ENOENT anyway, and many programs
+	// treat ENOENT as "not found, move on" but EACCES as a hard error. No
+	// message, audit record, or stats entry: the file does not exist, so there
+	// is nothing to report. Write actions are excluded because the process
+	// intended to create the file, so EACCES is the correct denial. Skipped
+	// when the rule sets a custom errno, because that is a deliberate choice.
+	if decision.Verdict == policy.VerdictDeny && ev.Path != "" &&
+		ev.Action != policy.ActionWrite &&
+		(decision.Rule == nil || decision.Rule.Errno == "") &&
+		!fileExists(ev.Path) {
+		resp := &seccomp.NotifResp{ID: req.ID, Error: -int32(unix.ENOENT)}
+		sendNotif(notifFd, resp)
+		return
+	}
+
 	// mkdir on an existing directory changes nothing: the kernel answers EEXIST.
 	// Let it through so mkdir -p works when parent directories are outside the
 	// allowed write paths.
@@ -674,4 +690,10 @@ func isMkdir(nr int32) bool {
 func dirExists(path string) bool {
 	fi, err := os.Lstat(path)
 	return err == nil && fi.IsDir()
+}
+
+// fileExists reports whether path exists (file, directory, or symlink).
+func fileExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }

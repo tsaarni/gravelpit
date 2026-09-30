@@ -49,6 +49,8 @@ func TestMain(m *testing.M) {
 		runProbe(probeForkOnly)
 	case "syscallvar":
 		runProbe(probeSyscallVar)
+	case "enoent":
+		runProbe(probeEnoent)
 	default:
 		fmt.Fprintf(os.Stderr, "probe: unknown probe set %q\n", os.Getenv("MUDPIT_PROBE"))
 		os.Exit(2)
