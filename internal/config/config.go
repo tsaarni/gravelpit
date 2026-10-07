@@ -23,7 +23,7 @@ type Config struct {
 
 // AuditConfig holds audit logging settings.
 type AuditConfig struct {
-	File  string `yaml:"file" jsonschema:"description=File path for audit log output (JSON lines). Default: ~/.local/share/gravelpit/audit.jsonl."`
+	File  string `yaml:"file" jsonschema:"description=File path for audit log output (JSON lines). Default: disabled (empty). Example: ~/.local/share/gravelpit/audit.jsonl."`
 	Level string `yaml:"level" jsonschema:"description=Which decisions to log: all or denials. Default: all."`
 }
 
@@ -96,15 +96,10 @@ func defaults() *Config {
 		}
 	}
 
-	xdgDataHome := os.Getenv("XDG_DATA_HOME")
-	if xdgDataHome == "" {
-		xdgDataHome = filepath.Join(home, ".local", "share")
-	}
-
 	return &Config{
 		PolicyDir: filepath.Join(home, ".config", "gravelpit", "policies"),
 		Audit: AuditConfig{
-			File:  filepath.Join(xdgDataHome, "gravelpit", "audit.jsonl"),
+			File:  "",
 			Level: "all",
 		},
 		Cache: CacheConfig{
