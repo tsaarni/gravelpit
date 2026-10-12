@@ -14,8 +14,9 @@ import (
 type EvalResult struct {
 	Action  Action
 	Verdict Verdict
-	Rule    *Rule // nil for default deny
+	Rule    *Rule
 	Score   int
+	NarrowsProcess bool
 	// Requested is the target as the caller typed it, Target the one policy was
 	// evaluated against. They differ when symlinks or procfs magic links were
 	// resolved. The runtime decides on Target, so both are reported: a rule
@@ -44,13 +45,14 @@ func Eval(rules []*CompiledRule, ev *Event) *EvalResult {
 	decision, matches := engine.EvaluateWithDetails(ev)
 
 	result := &EvalResult{
-		Action:    ev.Action,
-		Verdict:   decision.Verdict,
-		Rule:      decision.Rule,
-		Score:     decision.Score,
-		Requested: ev.RequestedPath,
-		Target:    evalTarget(ev),
-		Context:   eventContext(ev),
+		Action:         ev.Action,
+		Verdict:        decision.Verdict,
+		Rule:           decision.Rule,
+		Score:          decision.Score,
+		NarrowsProcess: decision.NarrowsProcess,
+		Requested:      ev.RequestedPath,
+		Target:         evalTarget(ev),
+		Context:        eventContext(ev),
 	}
 
 	for _, m := range matches {
@@ -118,7 +120,11 @@ func FormatEval(r *EvalResult) string {
 	}
 	fmt.Fprintf(&b, "verdict: %s\n", r.Verdict)
 	if r.Rule != nil {
-		fmt.Fprintf(&b, "decided by: %s (score %d, %s)\n", r.Rule.Name, r.Score, ruleLoc(r.Rule))
+		scoreStr := fmt.Sprintf("score %d", r.Score)
+		if r.NarrowsProcess {
+			scoreStr += "+process"
+		}
+		fmt.Fprintf(&b, "decided by: %s (%s, %s)\n", r.Rule.Name, scoreStr, ruleLoc(r.Rule))
 	} else {
 		fmt.Fprintf(&b, "decided by: default deny (no rule matched)\n")
 	}
@@ -126,8 +132,19 @@ func FormatEval(r *EvalResult) string {
 	if len(r.Matched) > 0 {
 		fmt.Fprintf(&b, "\nmatched rules:\n")
 		for _, m := range r.Matched {
-			fmt.Fprintf(&b, "  %3d  %-5s  %-30s  %s\n",
-				m.Score, m.Rule.Verdict, m.Rule.Name, ruleLoc(m.Rule))
+			scoreStr := fmt.Sprintf("%d", m.Score)
+			if m.NarrowsProcess {
+				scoreStr += "+process"
+			}
+			marker := ""
+			if r.Rule != nil && m.Rule.Name == r.Rule.Name {
+				marker = "  <- wins"
+				if m.NarrowsProcess {
+					marker += ", narrows process"
+				}
+			}
+			fmt.Fprintf(&b, "  %10s  %-5s  %-30s  %s%s\n",
+				scoreStr, m.Rule.Verdict, m.Rule.Name, ruleLoc(m.Rule), marker)
 		}
 	}
 
@@ -170,35 +187,38 @@ func ruleLoc(r *Rule) string {
 // so the output shape is explicit and can be asserted in tests, rather than
 // following struct changes in EvalResult by accident.
 type evalJSON struct {
-	Action    string            `json:"action"`
-	Target    string            `json:"target"`
-	Requested string            `json:"requested,omitempty"`
-	Context   map[string]string `json:"context,omitempty"`
-	Verdict   string            `json:"verdict"`
-	Score     int               `json:"score"`
-	DecidedBy *evalRuleJSON     `json:"decided_by"` // null for default deny
-	Rules     []evalRuleJSON    `json:"rules"`
+	Action         string            `json:"action"`
+	Target         string            `json:"target"`
+	Requested      string            `json:"requested,omitempty"`
+	Context        map[string]string `json:"context,omitempty"`
+	Verdict        string            `json:"verdict"`
+	Score          int               `json:"score"`
+	NarrowsProcess bool              `json:"narrows_process,omitempty"`
+	DecidedBy      *evalRuleJSON     `json:"decided_by"`
+	Rules          []evalRuleJSON    `json:"rules"`
 }
 
 type evalRuleJSON struct {
-	Name     string   `json:"name"`
-	Verdict  string   `json:"verdict"`
-	File     string   `json:"file,omitempty"`
-	Line     int      `json:"line,omitempty"`
-	Matched  bool     `json:"matched"`
-	Score    int      `json:"score,omitempty"`
-	Untested []string `json:"untested,omitempty"`
+	Name           string   `json:"name"`
+	Verdict        string   `json:"verdict"`
+	File           string   `json:"file,omitempty"`
+	Line           int      `json:"line,omitempty"`
+	Matched        bool     `json:"matched"`
+	Score          int      `json:"score,omitempty"`
+	NarrowsProcess bool     `json:"narrows_process,omitempty"`
+	Untested       []string `json:"untested,omitempty"`
 }
 
 // FormatEvalJSON renders an EvalResult as JSON, so policy behaviour can be
 // asserted by a test or a script instead of parsed out of the text form.
 func FormatEvalJSON(r *EvalResult) (string, error) {
 	out := evalJSON{
-		Action:  string(r.Action),
-		Target:  r.Target,
-		Verdict: string(r.Verdict),
-		Score:   r.Score,
-		Rules:   make([]evalRuleJSON, 0, len(r.Matched)+len(r.Unmatched)),
+		Action:         string(r.Action),
+		Target:         r.Target,
+		Verdict:        string(r.Verdict),
+		Score:          r.Score,
+		NarrowsProcess: r.NarrowsProcess,
+		Rules:          make([]evalRuleJSON, 0, len(r.Matched)+len(r.Unmatched)),
 	}
 	if r.Requested != r.Target {
 		out.Requested = r.Requested
@@ -211,23 +231,25 @@ func FormatEvalJSON(r *EvalResult) (string, error) {
 	}
 	if r.Rule != nil {
 		out.DecidedBy = &evalRuleJSON{
-			Name:    r.Rule.Name,
-			Verdict: string(r.Rule.Verdict),
-			File:    r.Rule.File,
-			Line:    r.Rule.Line,
-			Matched: true,
-			Score:   r.Score,
+			Name:           r.Rule.Name,
+			Verdict:        string(r.Rule.Verdict),
+			File:           r.Rule.File,
+			Line:           r.Rule.Line,
+			Matched:        true,
+			Score:          r.Score,
+			NarrowsProcess: r.NarrowsProcess,
 		}
 	}
 	for _, m := range append(append([]RuleMatch{}, r.Matched...), r.Unmatched...) {
 		out.Rules = append(out.Rules, evalRuleJSON{
-			Name:     m.Rule.Name,
-			Verdict:  string(m.Rule.Verdict),
-			File:     m.Rule.File,
-			Line:     m.Rule.Line,
-			Matched:  m.Matched,
-			Score:    m.Score,
-			Untested: m.Untested,
+			Name:           m.Rule.Name,
+			Verdict:        string(m.Rule.Verdict),
+			File:           m.Rule.File,
+			Line:           m.Rule.Line,
+			Matched:        m.Matched,
+			Score:          m.Score,
+			NarrowsProcess: m.NarrowsProcess,
+			Untested:       m.Untested,
 		})
 	}
 	data, err := json.MarshalIndent(out, "", "  ")

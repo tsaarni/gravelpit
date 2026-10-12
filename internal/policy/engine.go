@@ -13,10 +13,11 @@ import (
 // CompiledRule is a rule with its CEL program ready to execute.
 type CompiledRule struct {
 	Rule
-	Program  cel.Program // nil for fast-path rules
-	Patterns []string    // All pathMatch pattern literals extracted from the expression
-	Prefixes []string    // Literal prefix of each pattern (up to first wildcard), for fast rejection
-	FastPath bool        // True if evaluable without CEL (pure pathMatch || chain)
+	Program         cel.Program // nil for fast-path rules
+	Patterns        []string    // All pathMatch pattern literals extracted from the expression
+	Prefixes        []string    // Literal prefix of each pattern (up to first wildcard), for fast rejection
+	FastPath        bool        // True if evaluable without CEL (pure pathMatch || chain)
+	NarrowsProcess  bool        // True if a top-level && conjunct constrains process identity (process.* or ancestors)
 }
 
 // Engine evaluates events against a compiled rule set.
@@ -26,7 +27,9 @@ type CompiledRule struct {
 //     whose pattern names the most of the path decides ("most-specific-wins").
 //   - Specificity is the count of literal characters in the matching pattern
 //     (everything except wildcards, after variable expansion).
-//   - A tie between allow and deny goes to deny.
+//   - On a tie, a rule that also constrains the process (process.* or ancestors
+//     in a top-level && conjunct) wins over one that does not.
+//   - A remaining tie between allow and deny goes to deny.
 //   - If no rule matches, the answer is always deny (not configurable).
 //   - Rules are indexed by action so a notification is only evaluated against
 //     rules that apply to it.
@@ -371,6 +374,36 @@ func contextRefs(expr string) []string {
 	return refs
 }
 
+// narrowsProcess reports whether a match expression constrains process identity
+// in a top-level && conjunct. Only references to process.* and ancestors count;
+// sandbox.* is constant for the whole run and syscall.* is too broad to be
+// meaningful as a specificity signal.
+//
+// The check requires a top-level &&: the expression must be a conjunction where
+// at least one conjunct references process or ancestors. A bare
+// `process.exe == "x"` with no && is not narrowing — it selects a process but
+// names no path, so there is nothing to be more specific about. And
+// `process.exe == "x" || pathMatch(...)` does not narrow either, because the
+// pathMatch branch can match without the process check.
+//
+// This is a heuristic — `process.pid > 0 && pathMatch(...)` would count even
+// though it narrows nothing — but the policy author is the trusted party.
+func narrowsProcess(expr string) bool {
+	conjuncts := splitOnAnd(stripWhitespace(expr))
+	if len(conjuncts) < 2 {
+		return false
+	}
+	for _, conjunct := range conjuncts {
+		conjunct = stripOuterParens(conjunct)
+		for _, ref := range contextRefs(conjunct) {
+			if strings.HasPrefix(ref, "process") || ref == "ancestors" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // UnsuppliedContext returns the context variables a rule reads that are empty in
 // the event. It answers "was this rule even testable with the input given",
 // which is what separates a rule that does not apply from one that could not be
@@ -433,7 +466,8 @@ func isIdentChar(c byte) bool {
 }
 
 // Evaluate runs the event against all matching rules and returns the decision.
-// The most specific matching rule wins. Ties go to deny.
+// The most specific matching rule wins. On a tie, process-constrained rules
+// beat unconstrained ones; remaining ties go to deny.
 func (e *Engine) Evaluate(ev *Event) Decision {
 	candidates := e.rules[ev.Action]
 	if len(candidates) == 0 {
@@ -462,7 +496,9 @@ func (e *Engine) Evaluate(ev *Event) Decision {
 		if !matched {
 			continue
 		}
-		if best == nil || score > bestScore || (score == bestScore && r.Verdict == VerdictDeny) {
+		if best == nil || score > bestScore ||
+			(score == bestScore && r.NarrowsProcess && !best.NarrowsProcess) ||
+			(score == bestScore && r.NarrowsProcess == best.NarrowsProcess && r.Verdict == VerdictDeny) {
 			best = r
 			bestScore = score
 		}
@@ -479,11 +515,12 @@ func (e *Engine) Evaluate(ev *Event) Decision {
 	}
 
 	return Decision{
-		Verdict: best.Verdict,
-		Rule:    &best.Rule,
-		Score:   bestScore,
-		Message: msg,
-		Errno:   errno,
+		Verdict:        best.Verdict,
+		Rule:           &best.Rule,
+		Score:          bestScore,
+		NarrowsProcess: best.NarrowsProcess,
+		Message:        msg,
+		Errno:          errno,
 	}
 }
 
@@ -513,15 +550,18 @@ func (e *Engine) EvaluateWithDetails(ev *Event) (Decision, []RuleMatch) {
 		}
 
 		matches = append(matches, RuleMatch{
-			Rule:    &r.Rule,
-			Matched: matched,
-			Score:   score,
+			Rule:           &r.Rule,
+			Matched:        matched,
+			Score:          score,
+			NarrowsProcess: r.NarrowsProcess,
 		})
 
 		if !matched {
 			continue
 		}
-		if best == nil || score > bestScore || (score == bestScore && r.Verdict == VerdictDeny) {
+		if best == nil || score > bestScore ||
+			(score == bestScore && r.NarrowsProcess && !best.NarrowsProcess) ||
+			(score == bestScore && r.NarrowsProcess == best.NarrowsProcess && r.Verdict == VerdictDeny) {
 			best = r
 			bestScore = score
 		}
@@ -538,11 +578,12 @@ func (e *Engine) EvaluateWithDetails(ev *Event) (Decision, []RuleMatch) {
 	}
 
 	return Decision{
-		Verdict: best.Verdict,
-		Rule:    &best.Rule,
-		Score:   bestScore,
-		Message: msg,
-		Errno:   errno,
+		Verdict:        best.Verdict,
+		Rule:           &best.Rule,
+		Score:          bestScore,
+		NarrowsProcess: best.NarrowsProcess,
+		Message:        msg,
+		Errno:          errno,
 	}, matches
 }
 
@@ -750,11 +791,12 @@ func CompileRule(env *cel.Env, r *Rule) (*CompiledRule, error) {
 	// Check if this is a fast-path rule (pure pathMatch || chain on path or socket).
 	if isFastPathExpr(expr) && len(patterns) > 0 {
 		return &CompiledRule{
-			Rule:     *r,
-			Program:  nil,
-			Patterns: patterns,
-			Prefixes: patternPrefixes(patterns),
-			FastPath: true,
+			Rule:           *r,
+			Program:        nil,
+			Patterns:       patterns,
+			Prefixes:       patternPrefixes(patterns),
+			FastPath:       true,
+			NarrowsProcess: false, // fast-path rules are pure pathMatch chains, no process context
 		}, nil
 	}
 
@@ -768,7 +810,7 @@ func CompileRule(env *cel.Env, r *Rule) (*CompiledRule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("programming true: %w", err)
 		}
-		return &CompiledRule{Rule: *r, Program: prg, FastPath: false}, nil
+		return &CompiledRule{Rule: *r, Program: prg, FastPath: false, NarrowsProcess: false}, nil
 	}
 
 	ast, iss := env.Compile(expr)
@@ -780,7 +822,7 @@ func CompileRule(env *cel.Env, r *Rule) (*CompiledRule, error) {
 		return nil, fmt.Errorf("rule %q: %w", r.Name, err)
 	}
 
-	return &CompiledRule{Rule: *r, Program: prg, Patterns: patterns, Prefixes: patternPrefixes(patterns), FastPath: false}, nil
+	return &CompiledRule{Rule: *r, Program: prg, Patterns: patterns, Prefixes: patternPrefixes(patterns), FastPath: false, NarrowsProcess: narrowsProcess(expr)}, nil
 }
 
 // isFastPathExpr checks if an expression is a pure pathMatch chain that can be

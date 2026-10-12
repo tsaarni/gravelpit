@@ -114,6 +114,53 @@ func TestEngineTieGoesToDeny(t *testing.T) {
 	}
 }
 
+func TestEngineProcessConstraintBreaksTie(t *testing.T) {
+	rules := []Rule{
+		{
+			Name:    "deny-secret",
+			Actions: []Action{ActionRead},
+			Verdict: VerdictDeny,
+			Match:   `pathMatch(path, "/work/secret.txt")`,
+		},
+		{
+			Name:    "allow-secret-for-head",
+			Actions: []Action{ActionRead},
+			Verdict: VerdictAllow,
+			Match:   `process.exe == "/usr/bin/head" && pathMatch(path, "/work/secret.txt")`,
+		},
+	}
+	e := NewEngine(compileTestRules(t, rules))
+
+	// head should be allowed: same path score, but allow constrains process.
+	d := e.Evaluate(&Event{
+		Action:  ActionRead,
+		Path:    "/work/secret.txt",
+		Process: ProcessInfo{Exe: "/usr/bin/head"},
+	})
+	if d.Verdict != VerdictAllow {
+		t.Errorf("head: got %v, want allow", d.Verdict)
+	}
+	if d.Rule.Name != "allow-secret-for-head" {
+		t.Errorf("head: got rule %q, want allow-secret-for-head", d.Rule.Name)
+	}
+	if !d.NarrowsProcess {
+		t.Error("head: expected NarrowsProcess=true on decision")
+	}
+
+	// cat should be denied: allow rule doesn't match, deny wins.
+	d = e.Evaluate(&Event{
+		Action:  ActionRead,
+		Path:    "/work/secret.txt",
+		Process: ProcessInfo{Exe: "/usr/bin/cat"},
+	})
+	if d.Verdict != VerdictDeny {
+		t.Errorf("cat: got %v, want deny", d.Verdict)
+	}
+	if d.Rule.Name != "deny-secret" {
+		t.Errorf("cat: got rule %q, want deny-secret", d.Rule.Name)
+	}
+}
+
 func TestEngineConnectSocket(t *testing.T) {
 	rules := []Rule{
 		{

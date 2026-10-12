@@ -46,19 +46,21 @@ type Rule = schema.Rule
 
 // Decision is the result of evaluating an event against the rule set.
 type Decision struct {
-	Verdict Verdict
-	Rule    *Rule  // nil when decided by default deny
-	Score   int    // Specificity score of the deciding match
-	Message string // After placeholder interpolation
-	Errno   string
+	Verdict        Verdict
+	Rule           *Rule
+	Score          int
+	NarrowsProcess bool
+	Message        string
+	Errno          string
 }
 
 // RuleMatch records a single rule's evaluation result, for diagnostics.
 type RuleMatch struct {
-	Rule    *Rule
-	Matched bool
-	Score   int
-	Pattern string // The pattern that produced the score
+	Rule           *Rule
+	Matched        bool
+	Score          int
+	NarrowsProcess bool
+	Pattern        string // The pattern that produced the score
 	// Untested lists context variables the rule reads that the caller left
 	// empty, such as "process.exe". Only set by Eval. A rule with this set did
 	// not fail to apply, it could not be tested, and the two look identical in

@@ -9,7 +9,10 @@ cp examples/*.yaml ~/.config/gravelpit/policies/
 ## Rule evaluation
 
 Rules are defined in YAML files. All rules are checked on every operation. When
-multiple rules match, the one whose pattern has the most literal characters wins. If an allow and a deny score the same, deny wins. If no
+multiple rules match, the one whose pattern has the most literal characters wins.
+On a tie, a rule that also constrains the process (via `process.exe`,
+`process.comm`, or `startedBy()` in a top-level `&&`) wins over one that does
+not. A remaining tie between allow and deny goes to deny. If no
 rule matches, the operation is blocked. File order and file boundaries do not
 matter.
 
