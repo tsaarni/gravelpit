@@ -366,14 +366,15 @@ func runSandboxInner(policyDir string, envVars []string, auditFile string, audit
 			// gravelpit was signalled directly (not via terminal).
 			_ = child.Process.Signal(sig)
 			select {
-			case <-done:
+			case waitErr := <-done:
+				slog.Debug("sandbox child exited after signal", "error", waitErr)
 			case <-time.After(200 * time.Millisecond):
 				// Child did not exit. Force kill it. When our direct child
 				// dies, child.Wait returns. Grandchildren that escaped to
 				// their own process group lose the seccomp notif fd when we
 				// exit, which makes their next intercepted syscall fail.
 				_ = child.Process.Kill()
-				<-done
+				slog.Debug("sandbox child killed", "error", <-done)
 			}
 			restoreTerminal()
 			return 128 + int(sig.(syscall.Signal)), nil

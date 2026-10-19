@@ -13,11 +13,11 @@ import (
 // CompiledRule is a rule with its CEL program ready to execute.
 type CompiledRule struct {
 	Rule
-	Program         cel.Program // nil for fast-path rules
-	Patterns        []string    // All pathMatch pattern literals extracted from the expression
-	Prefixes        []string    // Literal prefix of each pattern (up to first wildcard), for fast rejection
-	FastPath        bool        // True if evaluable without CEL (pure pathMatch || chain)
-	NarrowsProcess  bool        // True if a top-level && conjunct constrains process identity (process.* or ancestors)
+	Program        cel.Program // nil for fast-path rules
+	Patterns       []string    // All pathMatch pattern literals extracted from the expression
+	Prefixes       []string    // Literal prefix of each pattern (up to first wildcard), for fast rejection
+	FastPath       bool        // True if evaluable without CEL (pure pathMatch || chain)
+	NarrowsProcess bool        // True if a top-level && conjunct constrains process identity (process.* or ancestors)
 }
 
 // Engine evaluates events against a compiled rule set.
