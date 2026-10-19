@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/dustin/go-humanize v1.0.1
+	github.com/dustin/go-humanize v1.1.0
 	github.com/google/cel-go v0.31.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.47.0
