@@ -12,10 +12,10 @@ import (
 
 // EvalResult holds the output of evaluating a policy decision.
 type EvalResult struct {
-	Action  Action
-	Verdict Verdict
-	Rule    *Rule
-	Score   int
+	Action         Action
+	Verdict        Verdict
+	Rule           *Rule
+	Score          int
 	NarrowsProcess bool
 	// Requested is the target as the caller typed it, Target the one policy was
 	// evaluated against. They differ when symlinks or procfs magic links were
