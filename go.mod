@@ -3,7 +3,7 @@ module github.com/tsaarni/gravelpit
 go 1.27
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/bmatcuk/doublestar/v4 v4.10.3
 	github.com/dustin/go-humanize v1.1.0
 	github.com/google/cel-go v0.31.0
 	github.com/spf13/cobra v1.10.2
